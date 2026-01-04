@@ -1,0 +1,4 @@
+USER=user
+PASSWD=pass
+
+HEADLESS=True or False

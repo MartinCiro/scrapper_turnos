@@ -1,0 +1,21 @@
+services:
+  python_bot:
+    container_name: certificado_monitor
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - USER=${USER}
+      - PASSWD=${PASSWD}
+      - HEADLESS=${HEADLESS}
+      - DISPLAY=:0
+      - PYTHONUNBUFFERED=1
+      
+    privileged: true
+
+    command: ["/bin/sh", "-c", "python main.py"]
+
+    restart: unless-stopped
