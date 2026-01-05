@@ -14,11 +14,10 @@ def mostrar_menu():
     print("1. 🚀 Flujo completo (Login + Click botón + Verificación)")
     print("2. 🔐 Solo login y click en botón principal")
     print("3. ⚡ Prueba rápida del botón (asume login previo)")
-    print("4. 🧪 Debug de selectores")
-    print("5. 🖼️  Tomar capturas de evidencia")
-    print("6. 🚪 Cerrar sesión")
-    print("7. 📊 Ver estado actual")
-    print("8. ❌ Salir")
+    print("4. 🖼️  Tomar capturas de evidencia")
+    print("5. 🚪 Cerrar sesión")
+    print("6. 📊 Ver estado actual")
+    print("7. ❌ Salir")
     print("="*60)
 
 def ejecutar_flujo_completo(ejecutor):
@@ -57,18 +56,6 @@ def prueba_rapida_boton(ejecutor):
     
     return resultado
 
-def debug_selectores():
-    """Ejecuta debug de los selectores"""
-    print("\n🔍 EJECUTANDO DEBUG DE SELECTORES...")
-    
-    try:
-        from controller.LoginEcoDigital import LoginEcoDigital
-        login = LoginEcoDigital()
-        login.debug_selectors()
-        return True
-    except Exception as e:
-        print(f"❌ Error en debug: {e}")
-        return False
 
 def tomar_capturas(ejecutor):
     """Toma capturas de pantalla"""
@@ -144,18 +131,15 @@ def main():
                     prueba_rapida_boton(ejecutor)
                     
                 elif opcion == "4":
-                    debug_selectores()
-                    
-                elif opcion == "5":
                     tomar_capturas(ejecutor)
                     
-                elif opcion == "6":
+                elif opcion == "5":
                     cerrar_sesion(ejecutor)
                     
-                elif opcion == "7":
+                elif opcion == "6":
                     ver_estado_actual(ejecutor)
                     
-                elif opcion == "8":
+                elif opcion == "7":
                     print("\n👋 Saliendo del programa...")
                     time.sleep(1)
                     break
@@ -164,7 +148,7 @@ def main():
                     print("❌ Opción inválida. Intenta de nuevo.")
                 
                 # Pausa entre operaciones
-                if opcion != "8":
+                if opcion != "7":
                     input("\n⏎ Presiona Enter para continuar...")
                     
             except KeyboardInterrupt:

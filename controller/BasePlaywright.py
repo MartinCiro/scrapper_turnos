@@ -5,7 +5,7 @@ import random
 import time
 import json
 from dotenv import load_dotenv
-from os import getenv
+from os import getenv, path, makedirs
 load_dotenv()
 
 class BasePlaywright:
@@ -401,25 +401,46 @@ class BasePlaywright:
         except:
             return False
 
-    def save_cookies(self, path: str = "cookies.json"):
+    def save_cookies(self):
         """Guarda las cookies de la sesión actual"""
         try:
+            cookies_dir = path.dirname(self.cookies_path)
+            if not path.exists(cookies_dir):
+                makedirs(cookies_dir, exist_ok=True)
+            
             cookies = self.context.cookies()
-            with open(path, 'w') as f:
-                json.dump(cookies, f)
-            return True
-        except:
-            return False
-
-    def load_cookies(self, path: str = "cookies.json"):
-        """Carga cookies en el contexto actual"""
-        try:
-            with open(path, 'r') as f:
-                cookies = json.load(f)
-            self.context.add_cookies(cookies)
-            return True
-        except:
-            return False
+            if cookies:
+                self.helper.backup_cookies(cookies, self.cookies_path)
+                self._log(f"✅ {len(cookies)} cookies guardadas", "success")
+        except Exception as e:
+            self._log(f"❌ Error guardando cookies: {str(e)}", "error")
+        
+    def find_element_by_xpath_list(self, xpath_list: list, timeout: int = 5000, state: str = "visible"):
+        """
+        Busca un elemento probando una lista de XPath en orden
+        """
+        for xpath in xpath_list:
+            try:
+                element = self.page.wait_for_selector(f"xpath={xpath}", timeout=timeout, state=state)
+                if element:
+                    self._log(f"✅ Elemento encontrado: {xpath[:50]}...", "info")
+                    return element
+            except:
+                continue
+        return None
+    
+    def check_any_xpath_exists(self, xpath_list: list, timeout: int = 3000) -> bool:
+        """
+        Verifica si ALGÚN XPath de la lista existe en la página
+        """
+        for xpath in xpath_list:
+            try:
+                element = self.page.wait_for_selector(f"xpath={xpath}", timeout=timeout, state="visible")
+                if element:
+                    return True
+            except:
+                continue
+        return False
 
     def __del__(self):
         """Limpieza segura al destruir la instancia"""

@@ -83,74 +83,16 @@ class Ejecuciones(BasePlaywright):
             # Selector específico del botón
             boton_selector = "//button[starts-with(@class, 'fc-btnVerCalendarioTurnos-button')]"
             
-            # Intentar diferentes métodos de click
-            if self._click_con_js(boton_selector):
-                print("✅ Click con JavaScript exitoso")
-                return True
-            elif self._click_playwright(boton_selector):
+            # Intentar con Playwright directamente (sin JavaScript)
+            if self._click_playwright(boton_selector):
                 print("✅ Click con Playwright exitoso")
                 return True
             else:
-                print("❌ No se pudo hacer click con ningún método")
+                print("❌ No se pudo hacer click con Playwright")
                 return False
-                
+                    
         except Exception as e:
             print(f"💥 Error haciendo click: {str(e)}")
-            return False
-
-    def _click_con_js(self, selector: str) -> bool:
-        """
-        Intenta hacer click usando JavaScript.
-        """
-        try:
-            # Esperar a que el elemento exista
-            self.login_instance.page.wait_for_selector(f"xpath={selector}", timeout=10000)
-            
-            # Hacer scroll al elemento
-            self.login_instance.page.evaluate(f"""
-                const element = document.evaluate(
-                    '{selector}',
-                    document,
-                    null,
-                    XPathResult.FIRST_ORDERED_NODE_TYPE,
-                    null
-                ).singleNodeValue;
-                
-                if (element) {{
-                    element.scrollIntoView({{behavior: 'smooth', block: 'center'}});
-                    return true;
-                }}
-                return false;
-            """)
-            
-            # Pequeña pausa antes del click
-            self.helper.human_like_delay(1, 2)
-            
-            # Click con JavaScript
-            result = self.login_instance.page.evaluate(f"""
-                const element = document.evaluate(
-                    '{selector}',
-                    document,
-                    null,
-                    XPathResult.FIRST_ORDERED_NODE_TYPE,
-                    null
-                ).singleNodeValue;
-                
-                if (element) {{
-                    element.click();
-                    return {{success: true, text: element.textContent.trim()}};
-                }}
-                return {{success: false, text: ''}};
-            """)
-            
-            if result.get('success', False):
-                print(f"📝 Texto del botón: {result.get('text', '')}")
-                self.helper.human_like_delay(2, 3)  # Esperar después del click
-                return True
-            return False
-            
-        except Exception as e:
-            print(f"⚠️  Click JS falló: {e}")
             return False
 
     def _click_playwright(self, selector: str) -> bool:
@@ -158,41 +100,38 @@ class Ejecuciones(BasePlaywright):
         Intenta hacer click usando métodos nativos de Playwright.
         """
         try:
-            # Buscar elemento con la función del login
-            element = self.login_instance._find_element_by_xpath_list([selector], timeout=10000)
-            
+            # Buscar elemento directamente con Playwright
+            element = self.login_instance.page.locator(f"xpath={selector}").first
             if element:
-                print(f"✅ Botón encontrado: {selector}")
+                print(f"✅ Botón encontrado con XPath: {selector}")
                 
-                # Scroll al elemento
-                element.scroll_into_view_if_needed()
-                self.helper.human_like_delay(1, 2)
-                
-                # Verificar estado del elemento
-                is_disabled = element.get_attribute("disabled")
-                if is_disabled:
-                    print("⚠️  Botón está deshabilitado")
+                # Verificar si es visible
+                if element.is_visible():
+                    print("✅ Botón visible")
+                    
+                    # Scroll al elemento
+                    element.scroll_into_view_if_needed()
+                    self.helper.human_like_delay(1, 2)
+                    
+                    # Obtener texto
+                    button_text = element.text_content().strip() if element.text_content() else ""
+                    print(f"📝 Texto del botón: {button_text}")
+                    
+                    # Hacer click
+                    element.click()
+                    print("✅ Click realizado")
+                    return True
+                else:
+                    print("❌ Botón no visible")
                     return False
-                
-                # Obtener texto antes del click
-                button_text = element.text_content().strip() if element.text_content() else ""
-                print(f"📝 Texto del botón: {button_text}")
-                
-                # Hacer click
-                element.click(delay=random.uniform(100, 300))
-                
-                # Esperar después del click
-                self.helper.human_like_delay(2, 4)
-                print("✅ Click realizado")
-                return True
             else:
                 print(f"❌ No se encontró el botón: {selector}")
                 return False
-                
+                    
         except Exception as e:
             print(f"⚠️  Click Playwright falló: {e}")
             return False
-
+        
     def ejecutar_flujo_completo(self):
         """
         Ejecuta un flujo completo de prueba.

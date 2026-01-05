@@ -12,6 +12,31 @@ class Config(BasePlaywright):
         """Constructor de la clase. Hereda de BasePlaywright"""
         load_dotenv()
         super().__init__()
+
+        self.selectors = {
+            # FORMULARIO DE LOGIN
+            "username_input": [
+                "//input[@id='UsuarioLogado_Login']",
+            ],
+            
+            "password_input": [
+                "//input[@id='UsuarioLogado_Password']",
+            ],
+            
+            "login_button": [
+                "//input[@id='btnIniciar']",
+            ],
+            
+            # VERIFICAR SESIÓN ACTIVA
+            "logged_in_indicators": [
+                "//button[starts-with(@class, 'fc-btnVerCalendarioTurnos-button')]",
+            ],
+            
+            # ERRORES DE LOGIN
+            "error_messages": [
+                "//div[contains(text(), 'Usuario o contraseña incorrectos')]",
+            ]
+        }
         
         # Inicializar Helpers
         self.helper = Helpers()
@@ -20,13 +45,13 @@ class Config(BasePlaywright):
         self.helper.create_directories()
         
         # 🔐 CREDENCIALES FACEBOOK
-        self.fb_email = self._get_env_variable("FB_EMAIL")
-        self.fb_password = self._get_env_variable("FB_PASSWORD")
+        self.user_eco = self._get_env_variable("USER")
+        self.ps_eco = self._get_env_variable("PASSWD")
         
-        # 🌐 URLs FACEBOOK
-        self.fb_base_url = "https://facebook.com"
-        self.fb_login_url = "https://facebook.com/login"
-        self.fb_groups_url = "https://facebook.com/groups"
+
+        self.eco_base_url = "https://ecodigital.emergiacc.com"
+        self.eco_login_url = f"{self.eco_base_url}/WebEcoPresencia"
+        self.eco_turnos_url = f"{self.eco_login_url}/Master#/TurnosAsesor"
         
         # 📱 CONFIGURACIÓN DE GRUPOS
         self.target_groups = self._get_groups_config()
@@ -132,8 +157,8 @@ class Config(BasePlaywright):
     def validate_config(self):
         """Valida que la configuración sea correcta usando Helpers"""
         # Validar credenciales
-        if not self.helper.validate_credentials(self.fb_email, self.fb_password):
-            print("Este es el resultado de la validación de credenciales: ", self.helper.validate_credentials(self.fb_email, self.fb_password), "FB_EMAIL:", self.fb_email, "FB_PASSWORD:", self.fb_password)
+        if not self.helper.validate_credentials(self.user_eco, self.ps_eco):
+            print("Este es el resultado de la validación de credenciales: ", self.helper.validate_credentials(self.user_eco, self.ps_eco), "FB_EMAIL:", self.user_eco, "FB_PASSWORD:", self.ps_eco)
             raise ValueError("Credenciales de Facebook inválidas")
         
         # Validar grupos
