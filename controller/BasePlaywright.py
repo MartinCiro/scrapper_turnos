@@ -1,9 +1,8 @@
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from controller.utils.Helpers import Helpers
-from typing import List, Optional, Union
-import random
-import time
-import json
+from typing import List
+from random import choice, uniform
+from time import sleep
 from dotenv import load_dotenv
 from os import getenv, path, makedirs
 load_dotenv()
@@ -76,7 +75,7 @@ class BasePlaywright:
         """Crea un contexto con configuración humana"""
         return self.browser.new_context(
             viewport={'width': 1920, 'height': 1080},
-            user_agent=random.choice(self.user_agents),
+            user_agent=choice(self.user_agents),
             locale='es-ES',
             timezone_id='Europe/Madrid',
             permissions=['notifications'],
@@ -147,7 +146,7 @@ class BasePlaywright:
     def _apply_stealth_to_page(self, page):
         """Aplica configuraciones stealth a una página específica"""
         page.set_extra_http_headers({
-            'User-Agent': random.choice(self.user_agents),
+            'User-Agent': choice(self.user_agents),
             'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
         })
 
@@ -202,7 +201,7 @@ class BasePlaywright:
             
             # Escribir con delays aleatorios
             for char in keys:
-                element.type(char, delay=random.uniform(delay, delay * 2))
+                element.type(char, delay=uniform(delay, delay * 2))
                 
             return True
         except Exception as e:
@@ -391,7 +390,7 @@ class BasePlaywright:
 
     def espera_aleatoria(self, min_seg: float = 2, max_seg: float = 5):
         """Espera aleatoria entre acciones para simular comportamiento humano"""
-        time.sleep(random.uniform(min_seg, max_seg))
+        sleep(uniform(min_seg, max_seg))
 
     def take_screenshot(self, path: str = "screenshot.png", full_page: bool = False):
         """Toma una captura de pantalla"""

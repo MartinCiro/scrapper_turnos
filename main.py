@@ -100,9 +100,8 @@ def main():
 
 # Ejemplo de uso directo (sin menú)
 if __name__ == "__main__":
-    print("\n🧪 INICIANDO AUTOMATIZACIÓN ECODIGITAL")
     print("="*50)
-    
+
     ejecutor = Ejecuciones()
     resultado = ejecutor.ejecuta_login_y_boton()
     

@@ -1,7 +1,6 @@
 from controller.BasePlaywright import BasePlaywright
 from controller.utils.Helpers import Helpers
 from numpy import array as ar, zeros, int32
-from time import sleep
 from datetime import datetime
 
 class ExtractorCalendario(BasePlaywright):
@@ -22,9 +21,14 @@ class ExtractorCalendario(BasePlaywright):
             
             # Números de día - plantilla con {fila} dinámico
             "numeros_fila": "//div[contains(@class, 'fc-row')][{fila}]//td[contains(@class, 'fc-day-number')]",
+
+            # Números de día SOLO del mes actual (sin fc-other-month)
+            "numeros_fila_mes_actual": "//div[contains(@class, 'fc-row')][{fila}]//td[contains(@class, 'fc-day-number') and not(contains(@class, 'fc-other-month'))]",
             
             # Turnos (verde #c1e6c5 o gris #d0d0d0) - plantilla con {fila} dinámico
             "turnos_fila": "//div[contains(@class, 'fc-row')][{fila}]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#c1e6c5') or contains(@style, '#d0d0d0')]",
+
+            "loader": "//div[@class='em-textLoader' and contains(@style, 'display: none')]",
             
             # Break (morado #bcb9d8) - plantilla con {fila} dinámico
             "break_fila": "//div[contains(@class, 'fc-row')][{fila}]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#bcb9d8')]"
@@ -60,7 +64,11 @@ class ExtractorCalendario(BasePlaywright):
                 page = self.login_instance.page
             else:
                 page = self.page
-            
+
+            loader = self._get_selector("loader")
+            page.wait_for_selector(f"xpath={loader}", state="visible", timeout=20000)
+
+
             selector = self._get_selector("dias_semana")
             dias_elements = page.query_selector_all(f"xpath={selector}")
             
@@ -194,7 +202,7 @@ class ExtractorCalendario(BasePlaywright):
     
     def extraer_turnos_y_breaks_juntos(self):
         """
-        Extrae turnos y breaks por filas manejando correctamente los rowspan.
+        Extrae turnos y breaks usando posiciones X (bounding box) para mapear correctamente ambos.
         """
         try:
             if self.login_instance:
@@ -218,104 +226,78 @@ class ExtractorCalendario(BasePlaywright):
                 ["", "", "", "", "", "", ""]
             ], dtype=object)
             
-            # Extraer por cada fila (semana)
             for fila_idx in range(5):
                 fila_num = fila_idx + 1
                 
-                # Selector para el tbody de esta semana
-                tbody_xpath = f"//div[contains(@class, 'fc-row')][{fila_num}]//div[@class='fc-content-skeleton']//tbody"
-                tbody = page.query_selector(f"xpath={tbody_xpath}")
+                # 1. Identificar columnas del mes actual y sus posiciones X
+                selector_todos = self._get_selector("numeros_fila", fila_num)
+                todas_celdas = page.query_selector_all(f"xpath={selector_todos}")
                 
-                if not tbody:
-                    continue
+                columnas_info = []  # [(col_idx, x_center), ...]
+                for col_idx, celda in enumerate(todas_celdas[:7]):
+                    if 'fc-other-month' not in (celda.get_attribute('class') or ''):
+                        bbox = celda.bounding_box()
+                        if bbox:
+                            x_center = bbox['x'] + bbox['width'] / 2
+                            columnas_info.append((col_idx, x_center))
                 
-                # Obtener las filas <tr> dentro del tbody
-                trs = tbody.query_selector_all("xpath=./tr")
+                # 2. EXTRAER TURNOS usando posición X
+                selector_turnos = self._get_selector("turnos_fila", fila_num)
+                elements_turnos = page.query_selector_all(f"xpath={selector_turnos}")
                 
-                if len(trs) == 0:
-                    continue
-                
-                # Primera <tr>: turnos principales
-                # Rastrear columnas con rowspan
-                columnas_con_rowspan = {}  # {col_idx: rowspan_restante}
-                
-                if len(trs) > 0:
-                    celdas_turnos = trs[0].query_selector_all("xpath=./td")
-                    col_idx = 0
-                    
-                    for celda in celdas_turnos:
-                        if col_idx >= 7:
-                            break
+                for element in elements_turnos:
+                    try:
+                        bbox = element.bounding_box()
+                        if not bbox:
+                            continue
                         
-                        # Verificar si es fc-event-container
-                        if 'fc-event-container' in (celda.get_attribute('class') or ''):
-                            # Buscar evento verde o gris (turno)
-                            evento = celda.query_selector("xpath=.//a[contains(@style, '#c1e6c5') or contains(@style, '#d0d0d0')]")
-                            if evento:
-                                texto = evento.text_content().strip()
-                                if texto:
-                                    eventos_principales[fila_idx, col_idx] = texto
-                            
-                            # Verificar rowspan
-                            rowspan_attr = celda.get_attribute('rowspan')
-                            if rowspan_attr:
-                                rowspan = int(rowspan_attr)
-                                if rowspan > 1:
-                                    columnas_con_rowspan[col_idx] = rowspan - 1
-                            
-                            col_idx += 1
-                        else:
-                            # Celda sin clase específica, avanzar
-                            col_idx += 1
+                        turno_x_center = bbox['x'] + bbox['width'] / 2
+                        
+                        # Encontrar la columna más cercana
+                        mejor_col = None
+                        menor_distancia = float('inf')
+                        
+                        for col_idx, x_center in columnas_info:
+                            distancia = abs(turno_x_center - x_center)
+                            if distancia < menor_distancia:
+                                menor_distancia = distancia
+                                mejor_col = col_idx
+                        
+                        if mejor_col is not None:
+                            texto = element.text_content().strip()
+                            if texto:
+                                eventos_principales[fila_idx, mejor_col] = texto
+                    except Exception as e:
+                        continue
                 
-                # Segunda <tr> y siguientes: breaks
-                if len(trs) > 1:
-                    for tr_idx, tr in enumerate(trs[1:], start=1):
-                        celdas_breaks = tr.query_selector_all("xpath=./td")
+                # 3. EXTRAER BREAKS usando posición X
+                selector_breaks = self._get_selector("break_fila", fila_num)
+                elements_breaks = page.query_selector_all(f"xpath={selector_breaks}")
+                
+                for element in elements_breaks:
+                    try:
+                        bbox = element.bounding_box()
+                        if not bbox:
+                            continue
                         
-                        # Ajustar columnas considerando rowspan de la fila anterior
-                        col_real = 0  # Columna real en la matriz
-                        td_idx = 0    # Índice del td actual
+                        break_x_center = bbox['x'] + bbox['width'] / 2
                         
-                        while col_real < 7 and td_idx < len(celdas_breaks):
-                            # Saltar columnas ocupadas por rowspan
-                            while col_real in columnas_con_rowspan and columnas_con_rowspan[col_real] > 0:
-                                col_real += 1
-                                if col_real >= 7:
-                                    break
-                            
-                            if col_real >= 7:
-                                break
-                            
-                            celda = celdas_breaks[td_idx]
-                            
-                            # Verificar si es fc-event-container
-                            if 'fc-event-container' in (celda.get_attribute('class') or ''):
-                                # Buscar evento morado (break)
-                                evento = celda.query_selector("xpath=.//a[contains(@style, '#bcb9d8')]")
-                                if evento:
-                                    texto = evento.text_content().strip()
-                                    if texto:
-                                        eventos_secundarios[fila_idx, col_real] = texto
-                                
-                                # Actualizar rowspan para filas futuras (si aplica)
-                                rowspan_attr = celda.get_attribute('rowspan')
-                                if rowspan_attr:
-                                    rowspan = int(rowspan_attr)
-                                    if rowspan > 1 and tr_idx == 1:  # Solo en la segunda fila
-                                        if col_real in columnas_con_rowspan:
-                                            columnas_con_rowspan[col_real] += rowspan - 1
-                                        else:
-                                            columnas_con_rowspan[col_real] = rowspan - 1
-                            
-                            col_real += 1
-                            td_idx += 1
+                        # Encontrar la columna más cercana
+                        mejor_col = None
+                        menor_distancia = float('inf')
                         
-                        # Decrementar rowspan para la siguiente iteración
-                        for col in list(columnas_con_rowspan.keys()):
-                            columnas_con_rowspan[col] -= 1
-                            if columnas_con_rowspan[col] <= 0:
-                                del columnas_con_rowspan[col]
+                        for col_idx, x_center in columnas_info:
+                            distancia = abs(break_x_center - x_center)
+                            if distancia < menor_distancia:
+                                menor_distancia = distancia
+                                mejor_col = col_idx
+                        
+                        if mejor_col is not None:
+                            texto = element.text_content().strip()
+                            if texto:
+                                eventos_secundarios[fila_idx, mejor_col] = texto
+                    except Exception as e:
+                        continue
             
             return eventos_principales, eventos_secundarios
             
@@ -341,8 +323,6 @@ class ExtractorCalendario(BasePlaywright):
     
     def extraer_todo(self):
         """Extrae todos los datos del calendario de forma eficiente"""
-        
-        sleep(2)  # Esperar a que cargue
         
         # Extraer días de la semana
         dias_semana = self.extraer_dias_semana()
