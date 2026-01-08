@@ -31,6 +31,10 @@ class Config(BasePlaywright):
             "logged_in_indicators": [
                 "//button[starts-with(@class, 'fc-btnVerCalendarioTurnos-button')]",
             ],
+
+            "btn_turnos": [
+                "//a[@href='#TurnosAsesor']",
+            ],
             
             # ERRORES DE LOGIN
             "error_messages": [
@@ -52,9 +56,6 @@ class Config(BasePlaywright):
         self.eco_base_url = "https://ecodigital.emergiacc.com"
         self.eco_login_url = f"{self.eco_base_url}/WebEcoPresencia"
         self.eco_turnos_url = f"{self.eco_login_url}/Master#/TurnosAsesor"
-        
-        # 📱 CONFIGURACIÓN DE GRUPOS
-        self.target_groups = self._get_groups_config()
         
         # ⚙️ CONFIGURACIÓN DE SCRAPING
         self.max_posts_per_group = int(self._get_env_variable("MAX_POSTS", "20"))
@@ -89,9 +90,6 @@ class Config(BasePlaywright):
         self.ai_model_path = self._get_env_variable("AI_MODEL_PATH", "./models")
         self.similarity_threshold = float(self._get_env_variable("SIMILARITY_THRESHOLD", "0.8"))
         
-        # Cargar configuración desde JSON si existe
-        self._load_json_config()
-        
         # Validar configuración
         self.validate_config()
 
@@ -102,70 +100,12 @@ class Config(BasePlaywright):
             raise ValueError(f"Variable de entorno requerida no encontrada: {key}")
         return value
 
-    def _get_groups_config(self):
-        """Obtiene configuración de grupos desde múltiples fuentes"""
-        groups = []
-        
-        # 1. Desde variable de entorno
-        groups_env = getenv("FB_GROUPS", "")
-        if groups_env:
-            groups.extend([group.strip() for group in groups_env.split(",") if group.strip()])
-        
-        # 2. Desde archivo de configuración JSON
-        fb_config = self.helper.get_value("facebook", "groups")
-        if fb_config:
-            if isinstance(fb_config, list):
-                groups.extend(fb_config)
-            elif isinstance(fb_config, str):
-                groups.extend([group.strip() for group in fb_config.split(",") if group.strip()])
-        
-        # Validar URLs de Facebook
-        valid_groups = []
-        for group in groups:
-            if self.helper.validate_facebook_url(group):
-                valid_groups.append(group)
-            else:
-                print(f"⚠️  URL de grupo inválida omitida: {group}")
-        
-        return valid_groups
-
-    def _load_json_config(self):
-        """Carga configuración adicional desde config.json usando Helpers"""
-        try:
-            fb_config = self.helper.load_facebook_config()
-            if not fb_config:
-                return
-                
-            # Actualizar configuración desde JSON
-            if "scraping" in fb_config:
-                scraping = fb_config["scraping"]
-                self.max_posts_per_group = scraping.get("max_posts", self.max_posts_per_group)
-                self.scroll_attempts = scraping.get("scroll_attempts", self.scroll_attempts)
-                self.request_delay = scraping.get("request_delay", self.request_delay)
-            
-            if "stealth" in fb_config:
-                stealth = fb_config["stealth"]
-                self.headless = stealth.get("headless", self.headless)
-                self.user_agent_rotation = stealth.get("rotate_ua", self.user_agent_rotation)
-                self.random_delays = stealth.get("random_delays", self.random_delays)
-                
-            print("✅ Configuración cargada desde config.json")
-            
-        except Exception as e:
-            print(f"⚠️  No se pudo cargar configuración desde JSON: {e}")
-
     def validate_config(self):
         """Valida que la configuración sea correcta usando Helpers"""
         # Validar credenciales
         if not self.helper.validate_credentials(self.user_eco, self.ps_eco):
             print("Este es el resultado de la validación de credenciales: ", self.helper.validate_credentials(self.user_eco, self.ps_eco), "FB_EMAIL:", self.user_eco, "FB_PASSWORD:", self.ps_eco)
             raise ValueError("Credenciales de Facebook inválidas")
-        
-        # Validar grupos
-        if not self.target_groups:
-            print("⚠️  Advertencia: No hay grupos configurados para scraping")
-        else:
-            print(f"✅ {len(self.target_groups)} grupos configurados para scraping")
         
         # Validar rutas
         required_paths = [self.screenshots_path, self.data_path, self.logs_path]

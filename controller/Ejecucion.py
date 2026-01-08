@@ -2,7 +2,7 @@ from controller.BasePlaywright import BasePlaywright
 from controller.Login import Login
 from controller.utils.Helpers import Helpers
 import time
-import random
+from controller.ExtractorCalendario import ExtractorCalendario
 
 class Ejecuciones(BasePlaywright):
     """
@@ -14,6 +14,35 @@ class Ejecuciones(BasePlaywright):
         super().__init__()
         self.helper = Helpers()
         self.login_instance = None
+
+    def extraer_y_procesar_calendario(self):
+        """
+        Extrae y procesa los datos del calendario después del login
+        """
+        try:
+            print("📅 Iniciando extracción de calendario...")
+            
+            if not self.login_instance or not self.login_instance.is_logged_in():
+                print("❌ No hay sesión activa")
+                return None
+            
+            # Crear extractor pasando la instancia de login
+            extractor = ExtractorCalendario(self.login_instance)
+            
+            # Extraer todos los datos
+            datos_calendario = extractor.extraer_todo()
+            
+            # Mostrar datos extraídos
+            extractor.mostrar_datos_extraidos(datos_calendario)
+            
+            
+            return {
+                'datos_extraidos': datos_calendario
+            }
+            
+        except Exception as e:
+            print(f"💥 Error extrayendo calendario: {e}")
+            return None
 
     def ejecuta_login_y_boton(self):
         """
@@ -45,6 +74,7 @@ class Ejecuciones(BasePlaywright):
                     # Hacer click en el botón principal
                     if self.click_boton_principal():
                         print("🎉 EJECUCIÓN COMPLETA: Login + Click exitosos")
+                        self.extraer_y_procesar_calendario()
                         return True
                     else:
                         print("⚠️  Login exitoso pero no se pudo hacer click en el botón")
@@ -103,8 +133,6 @@ class Ejecuciones(BasePlaywright):
             # Buscar elemento directamente con Playwright
             element = self.login_instance.page.locator(f"xpath={selector}").first
             if element:
-                print(f"✅ Botón encontrado con XPath: {selector}")
-                
                 # Verificar si es visible
                 if element.is_visible():
                     print("✅ Botón visible")
@@ -114,8 +142,8 @@ class Ejecuciones(BasePlaywright):
                     self.helper.human_like_delay(1, 2)
                     
                     # Obtener texto
-                    button_text = element.text_content().strip() if element.text_content() else ""
-                    print(f"📝 Texto del botón: {button_text}")
+                    """ button_text = element.text_content().strip() if element.text_content() else ""
+                    print(f"📝 Texto del botón: {button_text}") """
                     
                     # Hacer click
                     element.click()
@@ -139,10 +167,7 @@ class Ejecuciones(BasePlaywright):
         print("🔁 Iniciando flujo completo de prueba...")
         
         steps = [
-            ("1. Login", self.ejecuta_login_y_boton),
-            ("2. Verificar estado", self.verificar_estado_sistema),
-            ("3. Tomar captura", self.tomar_captura_evidencia),
-            ("4. Logout", self.ejecutar_logout)
+            ("1. Login", self.ejecuta_login_y_boton)
         ]
         
         resultados = {}
@@ -184,97 +209,6 @@ class Ejecuciones(BasePlaywright):
         print(f"\n🎯 RESULTADO: {exitosos}/{total} pasos exitosos")
         
         return exitosos == total
-
-    def verificar_estado_sistema(self):
-        """
-        Verifica el estado general del sistema después del login.
-        """
-        try:
-            if not self.login_instance:
-                print("❌ No hay instancia de login activa")
-                return False
-            
-            # Verificar si sigue logueado
-            if not self.login_instance.is_logged_in():
-                print("❌ Sesión perdida")
-                return False
-            
-            # Verificar elementos importantes
-            elementos_verificar = [
-                "//div[contains(@class, 'panel-asignacion')]",
-                "//h3[contains(text(), 'Turnos')]",
-                "//div[@id='main-container']"
-            ]
-            
-            encontrados = 0
-            for selector in elementos_verificar:
-                if self.login_instance._check_any_xpath_exists([selector], 2000):
-                    encontrados += 1
-                    print(f"✅ Elemento encontrado: {selector[:50]}...")
-            
-            print(f"📊 {encontrados}/{len(elementos_verificar)} elementos críticos presentes")
-            
-            # Tomar screenshot de estado
-            self.login_instance.page.screenshot(
-                path=f"./estado_sistema_{self.helper.get_current_timestamp()}.png",
-                full_page=False
-            )
-            
-            return encontrados >= 2  # Al menos 2 elementos críticos
-            
-        except Exception as e:
-            print(f"⚠️  Error verificando estado: {e}")
-            return False
-
-    def tomar_captura_evidencia(self):
-        """
-        Toma capturas de pantalla como evidencia.
-        """
-        try:
-            if not self.login_instance:
-                return False
-            
-            timestamp = self.helper.get_current_timestamp()
-            
-            # Captura de pantalla completa
-            self.login_instance.page.screenshot(
-                path=f"./evidencia_completa_{timestamp}.png",
-                full_page=True
-            )
-            
-            # Captura del viewport
-            self.login_instance.page.screenshot(
-                path=f"./evidencia_viewport_{timestamp}.png",
-                full_page=False
-            )
-            
-            print(f"📸 Capturas guardadas con timestamp: {timestamp}")
-            return True
-            
-        except Exception as e:
-            print(f"⚠️  Error tomando capturas: {e}")
-            return False
-
-    def ejecutar_logout(self):
-        """
-        Ejecuta logout del sistema.
-        """
-        try:
-            if not self.login_instance:
-                return False
-            
-            print("🚪 Ejecutando logout...")
-            
-            if self.login_instance.logout():
-                print("✅ Logout exitoso")
-                return True
-            else:
-                print("❌ No se pudo hacer logout")
-                return False
-                
-        except Exception as e:
-            print(f"💥 Error en logout: {e}")
-            return False
 
     def prueba_rapida_boton(self):
         """

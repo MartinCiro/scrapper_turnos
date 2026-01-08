@@ -134,7 +134,6 @@ class Helpers:
     def create_directories(self):
         """Crea los directorios necesarios para el proyecto Facebook"""
         directories = [
-            "./screenshots",
             "./data", 
             "./logs",
             "./cookies"
@@ -143,7 +142,6 @@ class Helpers:
         for directory in directories:
             try:
                 makedirs(directory, exist_ok=True)
-                print(f"✅ Directorio creado/existe: {directory}")
             except Exception as e:
                 print(f"❌ Error creando directorio {directory}: {e}")
 
@@ -182,102 +180,6 @@ class Helpers:
         
         # Usar 'search' en lugar de 'sub' - ESTA ERA LA CAUSA DEL ERROR
         return any(domain in url.lower() for domain in facebook_domains)
-
-    def extract_facebook_group_id(self, group_url: str) -> str:
-        """Extrae el ID de un grupo de Facebook desde la URL - CORREGIDO"""
-        try:
-            if not group_url:
-                return ""
-                
-            # Diferentes formatos de URLs de grupos
-            patterns = [
-                r'facebook\.com/groups/([^/?]+)',
-                r'fb\.com/groups/([^/?]+)',
-                r'groups/([^/?]+)'
-            ]
-            
-            for pattern in patterns:
-                match = search(pattern, group_url)
-                if match:
-                    return match.group(1)
-            
-            return ""
-        except Exception as e:
-            print(f"❌ Error extrayendo group ID: {e}")
-            return ""
-
-    def save_facebook_data(self, data: dict, filename: str):
-        """Guarda datos de Facebook en JSON con timestamp"""
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe_filename = sub(r'[^\w\-_.]', '_', filename)  # Aquí 'sub' está bien usado
-            filepath = f"./data/fb_{safe_filename}_{timestamp}.json"
-            
-            # Agregar metadata
-            data_with_meta = {
-                "metadata": {
-                    "scraped_at": self.get_current_time(),
-                    "source": "facebook", 
-                    "version": "1.0"
-                },
-                "data": data
-            }
-            
-            self.save_json(filepath, data_with_meta)
-            return filepath
-        except Exception as e:
-            print(f"❌ Error guardando datos Facebook: {e}")
-            return None
-
-    def load_facebook_config(self) -> dict:
-        """Carga configuración específica para Facebook"""
-        try:
-            config = self.get_value("facebook")
-            if not config:
-                # Configuración por defecto
-                config = {
-                    "max_posts_per_group": 10,
-                    "scroll_attempts": 3,
-                    "request_delay": 2,
-                    "headless": False,
-                    "enable_screenshots": True
-                }
-            return config
-        except Exception as e:
-            print(f"❌ Error cargando configuración Facebook: {e}")
-            return {}
-
-    def clean_facebook_text(self, text: str) -> str:
-        """Limpia texto extraído de Facebook"""
-        if not text:
-            return ""
-        
-        # Remover emojis y caracteres especiales - 'sub' usado correctamente
-        cleaned = sub(r'[^\w\sáéíóúÁÉÍÓÚñÑ.,!?;:()\-]', '', text)
-        # Remover espacios múltiples
-        cleaned = sub(r'\s+', ' ', cleaned)
-        return cleaned.strip()
-
-    def format_facebook_post_data(self, post_data: dict) -> dict:
-        """Formatea y estructura datos de un post de Facebook"""
-        return {
-            "post_id": post_data.get("id", ""),
-            "author": self.clean_facebook_text(post_data.get("author", "")),
-            "content": self.clean_facebook_text(post_data.get("content", "")),
-            "timestamp": post_data.get("timestamp", ""),
-            "likes": int(post_data.get("likes", 0)),
-            "comments": int(post_data.get("comments", 0)),
-            "shares": int(post_data.get("shares", 0)),
-            "media_attached": post_data.get("has_media", False),
-            "url": post_data.get("url", ""),
-            "scraped_at": self.get_current_time()
-        }
-
-    def check_rate_limit(self, last_request_time: float, min_interval: float = 2.0) -> bool:
-        """Verifica si se debe esperar por rate limiting"""
-        current_time = time()
-        time_since_last = current_time - last_request_time
-        return time_since_last >= min_interval
 
     def get_timestamp_filename(self, prefix: str = "screenshot") -> str:
         """Genera un nombre de archivo con timestamp"""

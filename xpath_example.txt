@@ -90,5 +90,35 @@
 
 //input[@id='btnIniciar']
 
-//button[starts-with(@class, 'fc-btnVerCalendarioTurnos-button')]
+//td[starts-with(@class, 'fc-day') and contains(@class, 'fc-today')]/parent::tr -> los numero de la fila
+//td[starts-with(@class, 'fc-day') and contains(@class, 'fc-future')]
 
+//td[starts-with(@class, 'fc-day') and contains(@class, 'fc-future')][1]/@data-date
+2026-01-06
+2026-01-06
+2026-01-12
+2026-01-12
+2026-01-19
+2026-01-19
+2026-01-26
+2026-01-26
+
+//h2[contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZÁÉÍÓÚ', 'abcdefghijklmnñopqrstuvwxyzáéíóú'), 'enero 2026')]/ancestor::div[starts-with(@class, 'fc-toolbar')]/following-sibling::div//div[contains(@class, 'fc-basic-view')]
+
+//td[contains(@class, 'fc-mon') and contains(@class, 'fc-day-number')]
+
+1. Días de la semana (Lun, Mar, Mié, Jue, Vie, Sáb, Dom): -> crear lista quemada
+//th[contains(@class, 'fc-day-header')]
+
+2. Números de día (29, 5, 12, 19, 26):
+//div[contains(@class, 'fc-row')][1]//td[contains(@class, 'fc-day-number')]
+
+3. Horarios de la primera fila:
+ a. //div[contains(@class, 'fc-row')][2]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#c1e6c5') or contains(@style, '#d0d0d0')] # Turnos
+
+ b. //div[contains(@class, 'fc-row')][3]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#bcb9d8')] # Break
+
+
+
+
+https://ecodigital.emergiacc.com/WebEcoPresencia/Eco/VencimientoSesion

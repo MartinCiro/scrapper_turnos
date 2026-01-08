@@ -37,7 +37,6 @@ class Login(Config):
         try:
             # Verificar el botón principal de calendario de turnos
             if self.check_any_xpath_exists([self.selectors["logged_in_indicators"][0]], 3000):
-                self._log("✅ Detectado botón de calendario de turnos - SESIÓN ACTIVA", "success")
                 return True
             
             # Verificar otros indicadores de sesión activa
@@ -67,7 +66,7 @@ class Login(Config):
                 return False
             
             # Última verificación: presencia de elementos post-login
-            if elements_found >= 1 and self.check_any_xpath_exists(self.selectors["post_login_elements"], 2000):
+            if elements_found >= 1 and self.check_any_xpath_exists(self.selectors["btn_turnos"], 2000):
                 self._log("✅ Confirmado por elementos post-login", "success")
                 return True
             

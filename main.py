@@ -13,11 +13,7 @@ def mostrar_menu():
     print("="*60)
     print("1. 🚀 Flujo completo (Login + Click botón + Verificación)")
     print("2. 🔐 Solo login y click en botón principal")
-    print("3. ⚡ Prueba rápida del botón (asume login previo)")
-    print("4. 🖼️  Tomar capturas de evidencia")
-    print("5. 🚪 Cerrar sesión")
-    print("6. 📊 Ver estado actual")
-    print("7. ❌ Salir")
+    print("3. ❌ Salir")
     print("="*60)
 
 def ejecutar_flujo_completo(ejecutor):
@@ -44,63 +40,6 @@ def solo_login_y_boton(ejecutor):
     
     return resultado
 
-def prueba_rapida_boton(ejecutor):
-    """Prueba rápida del botón (asume sesión activa)"""
-    print("\n⚡ EJECUTANDO PRUEBA RÁPIDA DEL BOTÓN...")
-    resultado = ejecutor.prueba_rapida_boton()
-    
-    if resultado:
-        print("\n✅ Prueba rápida exitosa")
-    else:
-        print("\n❌ Prueba rápida fallida")
-    
-    return resultado
-
-
-def tomar_capturas(ejecutor):
-    """Toma capturas de pantalla"""
-    print("\n🖼️  TOMANDO CAPTURAS DE EVIDENCIA...")
-    resultado = ejecutor.tomar_captura_evidencia()
-    
-    if resultado:
-        print("\n✅ Capturas guardadas exitosamente")
-    else:
-        print("\n❌ Error al tomar capturas")
-    
-    return resultado
-
-def cerrar_sesion(ejecutor):
-    """Cierra la sesión actual"""
-    print("\n🚪 CERRANDO SESIÓN...")
-    resultado = ejecutor.ejecutar_logout()
-    
-    if resultado:
-        print("\n✅ Sesión cerrada exitosamente")
-    else:
-        print("\n❌ No se pudo cerrar la sesión")
-    
-    return resultado
-
-def ver_estado_actual(ejecutor):
-    """Muestra el estado actual del sistema"""
-    print("\n📊 VERIFICANDO ESTADO ACTUAL...")
-    
-    if ejecutor.login_instance:
-        estado = ejecutor.login_instance.get_login_status()
-        print(f"\n📋 Estado del login:")
-        for key, value in estado.items():
-            print(f"   • {key}: {value}")
-        
-        # Verificar sesión activa
-        if ejecutor.login_instance.is_logged_in():
-            print("   • Estado sesión: ✅ ACTIVA")
-        else:
-            print("   • Estado sesión: ❌ INACTIVA")
-    else:
-        print("ℹ️  No hay instancia de login activa")
-    
-    return True
-
 def main():
     """Función principal del programa"""
     print("\n" + "="*60)
@@ -119,27 +58,15 @@ def main():
             mostrar_menu()
             
             try:
-                opcion = input("\n📋 Selecciona una opción (1-8): ").strip()
+                opcion = input("\n📋 Selecciona una opción (1-3): ").strip()
                 
                 if opcion == "1":
                     ejecutar_flujo_completo(ejecutor)
                     
                 elif opcion == "2":
                     solo_login_y_boton(ejecutor)
-                    
+
                 elif opcion == "3":
-                    prueba_rapida_boton(ejecutor)
-                    
-                elif opcion == "4":
-                    tomar_capturas(ejecutor)
-                    
-                elif opcion == "5":
-                    cerrar_sesion(ejecutor)
-                    
-                elif opcion == "6":
-                    ver_estado_actual(ejecutor)
-                    
-                elif opcion == "7":
                     print("\n👋 Saliendo del programa...")
                     time.sleep(1)
                     break
@@ -148,7 +75,7 @@ def main():
                     print("❌ Opción inválida. Intenta de nuevo.")
                 
                 # Pausa entre operaciones
-                if opcion != "7":
+                if opcion != "6":
                     input("\n⏎ Presiona Enter para continuar...")
                     
             except KeyboardInterrupt:
