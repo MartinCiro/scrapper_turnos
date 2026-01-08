@@ -119,8 +119,6 @@ class Config(BasePlaywright):
         
         if self.request_delay < 1.0:
             print("⚠️  Advertencia: REQUEST_DELAY muy bajo, puede causar bloqueo")
-        
-        print("✅ Configuración validada correctamente")
         return True
 
     def get_scraping_config(self) -> dict:

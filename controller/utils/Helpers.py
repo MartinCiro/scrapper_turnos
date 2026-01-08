@@ -187,16 +187,14 @@ class Helpers:
         return f"./screenshots/{prefix}_{timestamp}.png"
 
     def validate_credentials(self, email: str, password: str) -> bool:
-        """Valida formato básico de credenciales - CORREGIDO"""
-        print(f"Validando credenciales para email: {email}")
-        print(f"Validando credenciales para password: {'*' * len(password) if password else ''}")
+        """Valida formato básico de credenciales"""
         if not email or not password:
             return False
             
         return True
 
     def backup_cookies(self, cookies: list, filename: str = None):
-        """Guarda cookies de sesión para reutilizar - CORREGIDO"""
+        """Guarda cookies de sesión para reutilizar"""
         try:
             if not filename:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -194,8 +194,7 @@ class ExtractorCalendario(BasePlaywright):
     
     def extraer_turnos_y_breaks_juntos(self):
         """
-        Extrae turnos y breaks por filas.
-        Los turnos están en la primera <tr> y los breaks en la segunda <tr> de cada semana.
+        Extrae turnos y breaks por filas manejando correctamente los rowspan.
         """
         try:
             if self.login_instance:
@@ -233,35 +232,90 @@ class ExtractorCalendario(BasePlaywright):
                 # Obtener las filas <tr> dentro del tbody
                 trs = tbody.query_selector_all("xpath=./tr")
                 
+                if len(trs) == 0:
+                    continue
+                
                 # Primera <tr>: turnos principales
+                # Rastrear columnas con rowspan
+                columnas_con_rowspan = {}  # {col_idx: rowspan_restante}
+                
                 if len(trs) > 0:
-                    celdas_turnos = trs[0].query_selector_all("xpath=./td[@class='fc-event-container']")
-                    for col_idx, celda in enumerate(celdas_turnos):
+                    celdas_turnos = trs[0].query_selector_all("xpath=./td")
+                    col_idx = 0
+                    
+                    for celda in celdas_turnos:
                         if col_idx >= 7:
                             break
                         
-                        # Buscar evento verde o gris (turno)
-                        evento = celda.query_selector("xpath=.//a[contains(@style, '#c1e6c5') or contains(@style, '#d0d0d0')]")
-                        if evento:
-                            texto = evento.text_content().strip()
-                            if texto:
-                                eventos_principales[fila_idx, col_idx] = texto
-                
-                # Segunda <tr> (o siguientes): breaks
-                if len(trs) > 1:
-                    # Los breaks pueden estar en cualquier <tr> después de la primera
-                    for tr in trs[1:]:
-                        celdas_breaks = tr.query_selector_all("xpath=./td[@class='fc-event-container']")
-                        for col_idx, celda in enumerate(celdas_breaks):
-                            if col_idx >= 7:
-                                break
-                            
-                            # Buscar evento morado (break)
-                            evento = celda.query_selector("xpath=.//a[contains(@style, '#bcb9d8')]")
+                        # Verificar si es fc-event-container
+                        if 'fc-event-container' in (celda.get_attribute('class') or ''):
+                            # Buscar evento verde o gris (turno)
+                            evento = celda.query_selector("xpath=.//a[contains(@style, '#c1e6c5') or contains(@style, '#d0d0d0')]")
                             if evento:
                                 texto = evento.text_content().strip()
                                 if texto:
-                                    eventos_secundarios[fila_idx, col_idx] = texto
+                                    eventos_principales[fila_idx, col_idx] = texto
+                            
+                            # Verificar rowspan
+                            rowspan_attr = celda.get_attribute('rowspan')
+                            if rowspan_attr:
+                                rowspan = int(rowspan_attr)
+                                if rowspan > 1:
+                                    columnas_con_rowspan[col_idx] = rowspan - 1
+                            
+                            col_idx += 1
+                        else:
+                            # Celda sin clase específica, avanzar
+                            col_idx += 1
+                
+                # Segunda <tr> y siguientes: breaks
+                if len(trs) > 1:
+                    for tr_idx, tr in enumerate(trs[1:], start=1):
+                        celdas_breaks = tr.query_selector_all("xpath=./td")
+                        
+                        # Ajustar columnas considerando rowspan de la fila anterior
+                        col_real = 0  # Columna real en la matriz
+                        td_idx = 0    # Índice del td actual
+                        
+                        while col_real < 7 and td_idx < len(celdas_breaks):
+                            # Saltar columnas ocupadas por rowspan
+                            while col_real in columnas_con_rowspan and columnas_con_rowspan[col_real] > 0:
+                                col_real += 1
+                                if col_real >= 7:
+                                    break
+                            
+                            if col_real >= 7:
+                                break
+                            
+                            celda = celdas_breaks[td_idx]
+                            
+                            # Verificar si es fc-event-container
+                            if 'fc-event-container' in (celda.get_attribute('class') or ''):
+                                # Buscar evento morado (break)
+                                evento = celda.query_selector("xpath=.//a[contains(@style, '#bcb9d8')]")
+                                if evento:
+                                    texto = evento.text_content().strip()
+                                    if texto:
+                                        eventos_secundarios[fila_idx, col_real] = texto
+                                
+                                # Actualizar rowspan para filas futuras (si aplica)
+                                rowspan_attr = celda.get_attribute('rowspan')
+                                if rowspan_attr:
+                                    rowspan = int(rowspan_attr)
+                                    if rowspan > 1 and tr_idx == 1:  # Solo en la segunda fila
+                                        if col_real in columnas_con_rowspan:
+                                            columnas_con_rowspan[col_real] += rowspan - 1
+                                        else:
+                                            columnas_con_rowspan[col_real] = rowspan - 1
+                            
+                            col_real += 1
+                            td_idx += 1
+                        
+                        # Decrementar rowspan para la siguiente iteración
+                        for col in list(columnas_con_rowspan.keys()):
+                            columnas_con_rowspan[col] -= 1
+                            if columnas_con_rowspan[col] <= 0:
+                                del columnas_con_rowspan[col]
             
             return eventos_principales, eventos_secundarios
             
@@ -359,7 +413,6 @@ class ExtractorCalendario(BasePlaywright):
                         fila_str += f"{break_info:12s} "
                 else:
                     fila_str += "   -        "
-            print(fila_str)
         
         # 5. VISTA DETALLADA POR DÍA (solo días con datos)
         print("\n🔍 VISTA DETALLADA POR DÍA:")

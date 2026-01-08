@@ -154,8 +154,6 @@ class Login(Config):
             if not cookies:
                 self._log("📁 Archivo de cookies vacío o inválido", "info")
                 return False
-                
-            self._log(f"🍪 Intentando login con {len(cookies)} cookies...")
             
             # Limpiar cookies existentes y agregar las guardadas
             self.context.clear_cookies()
@@ -187,7 +185,6 @@ class Login(Config):
             return False
             
         self.login_attempts += 1
-        self._log(f"🔄 Intentando login ({self.login_attempts}/{self.max_login_attempts})...")
         
         # 1. INTENTAR CON COOKIES
         if use_cookies and self._try_cookies_login():
@@ -233,7 +230,6 @@ class Login(Config):
         
         # 7. VERIFICAR LOGIN EXITOSO
         if self.is_logged_in():
-            self._log("✅ Login exitoso", "success")
             self.save_cookies()
             self.login_attempts = 0
             return True
@@ -241,15 +237,3 @@ class Login(Config):
             self._log("❌ Login fallido", "error")
             self.helper.human_like_delay(5, 10)
             return self.login(use_cookies=False)
-
-    def get_login_status(self) -> dict:
-        """
-        Obtiene el estado actual del login.
-        """
-        return {
-            "logged_in": self.is_logged_in(),
-            "login_attempts": self.login_attempts,
-            "max_attempts": self.max_login_attempts,
-            "current_url": self.page.url,
-            "cookies_available": bool(self.helper.load_cookies(self.cookies_path))
-        }

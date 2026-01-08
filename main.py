@@ -103,27 +103,13 @@ if __name__ == "__main__":
     print("\n🧪 INICIANDO AUTOMATIZACIÓN ECODIGITAL")
     print("="*50)
     
-    # Opción 1: Ejecutar directamente (descomenta la que necesites)
-    
-    # 1. Modo interactivo con menú
-    main()
-    
-    # 2. Ejecución directa sin menú (descomenta para usar)
-    """
     ejecutor = Ejecuciones()
-    resultado = ejecutor.ejecutar_flujo_completo()
+    resultado = ejecutor.ejecuta_login_y_boton()
     
     if resultado:
         print("\n🎉 ¡EJECUCIÓN EXITOSA!")
     else:
         print("\n💀 ¡EJECUCIÓN FALLIDA!")
-    """
-    
-    # 3. Solo login y click
-    """
-    ejecutor = Ejecuciones()
-    resultado = ejecutor.ejecuta_login_y_boton()
-    """
     
     print("\n" + "="*50)
     print("🏁 EJECUCIÓN COMPLETADA")

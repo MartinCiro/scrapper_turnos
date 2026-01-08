@@ -20,8 +20,6 @@ class Ejecuciones(BasePlaywright):
         Extrae y procesa los datos del calendario después del login
         """
         try:
-            print("📅 Iniciando extracción de calendario...")
-            
             if not self.login_instance or not self.login_instance.is_logged_in():
                 print("❌ No hay sesión activa")
                 return None
@@ -65,15 +63,9 @@ class Ejecuciones(BasePlaywright):
                 # Intentar login
                 if self.login_instance.login():
                     login_exitoso = True
-                    print(f"✅ Login exitoso en el intento {intentos_login + 1}")
-                    
-                    # Mostrar estado
-                    estado = self.login_instance.get_login_status()
-                    print(f"📊 Estado: {estado}")
                     
                     # Hacer click en el botón principal
                     if self.click_boton_principal():
-                        print("🎉 EJECUCIÓN COMPLETA: Login + Click exitosos")
                         self.extraer_y_procesar_calendario()
                         return True
                     else:
@@ -108,14 +100,11 @@ class Ejecuciones(BasePlaywright):
         Hace click en el botón principal de calendario de turnos.
         """
         try:
-            print("🖱️  Buscando botón principal...")
-            
             # Selector específico del botón
             boton_selector = "//button[starts-with(@class, 'fc-btnVerCalendarioTurnos-button')]"
             
             # Intentar con Playwright directamente (sin JavaScript)
             if self._click_playwright(boton_selector):
-                print("✅ Click con Playwright exitoso")
                 return True
             else:
                 print("❌ No se pudo hacer click con Playwright")
@@ -135,8 +124,6 @@ class Ejecuciones(BasePlaywright):
             if element:
                 # Verificar si es visible
                 if element.is_visible():
-                    print("✅ Botón visible")
-                    
                     # Scroll al elemento
                     element.scroll_into_view_if_needed()
                     self.helper.human_like_delay(1, 2)
@@ -147,7 +134,6 @@ class Ejecuciones(BasePlaywright):
                     
                     # Hacer click
                     element.click()
-                    print("✅ Click realizado")
                     return True
                 else:
                     print("❌ Botón no visible")
