@@ -72,7 +72,7 @@ class Config(BasePlaywright):
         # 📁 CONFIGURACIÓN DE ALMACENAMIENTO
         self.screenshots_path = self._get_env_variable("SCREENSHOTS_PATH", "./screenshots")
         self.data_path = self._get_env_variable("DATA_PATH", "./data")
-        self.cookies_path = self._get_env_variable("COOKIES_PATH", "./cookies/facebook_cookies.json")
+        self.cookies_path = self._get_env_variable("COOKIES_PATH", "./cookies/cookies.json")
         self.logs_path = self._get_env_variable("LOGS_PATH", "./logs")
         
         # 🖼️ CONFIGURACIÓN DE MEDIA

@@ -198,7 +198,7 @@ class Helpers:
         try:
             if not filename:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"./cookies/fb_cookies_{timestamp}.json"
+                filename = f"./cookies/cookies_{timestamp}.json"
             
             # Asegurar que el directorio existe
             directory = path.dirname(filename)

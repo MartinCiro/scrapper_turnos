@@ -1,7 +1,6 @@
 from controller.BasePlaywright import BasePlaywright
 from controller.Login import Login
 from controller.utils.Helpers import Helpers
-import time
 from controller.ExtractorCalendario import ExtractorCalendario
 
 class Ejecuciones(BasePlaywright):
@@ -220,21 +219,3 @@ class Ejecuciones(BasePlaywright):
         except Exception as e:
             print(f"💥 Error en prueba rápida: {str(e)}")
             return False
-
-# Función principal de ejecución
-if __name__ == "__main__":
-    print("🔧 Iniciando ejecutor de EcoDigital...")
-    
-    # Crear instancia del ejecutor
-    ejecutor = Ejecuciones()
-    
-    # Ejecutar flujo completo
-    resultado = ejecutor.ejecutar_flujo_completo()
-    
-    if resultado:
-        print("\n🎊 ¡FLUJO COMPLETADO CON ÉXITO!")
-    else:
-        print("\n💀 ¡FLUJO FALLIDO!")
-    
-    # Pausa antes de cerrar
-    time.sleep(3)
