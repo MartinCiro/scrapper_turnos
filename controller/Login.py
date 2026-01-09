@@ -66,7 +66,7 @@ class Login(Config):
                 return False
             
             # Última verificación: presencia de elementos post-login
-            if elements_found >= 1 and self.check_any_xpath_exists(self.selectors["btn_turnos"], 2000):
+            if self.check_any_xpath_exists(self.selectors["btn_success_indicator"], 2000):
                 self._log("✅ Confirmado por elementos post-login", "success")
                 return True
             

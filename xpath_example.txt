@@ -94,14 +94,6 @@
 //td[starts-with(@class, 'fc-day') and contains(@class, 'fc-future')]
 
 //td[starts-with(@class, 'fc-day') and contains(@class, 'fc-future')][1]/@data-date
-2026-01-06
-2026-01-06
-2026-01-12
-2026-01-12
-2026-01-19
-2026-01-19
-2026-01-26
-2026-01-26
 
 //h2[contains(translate(normalize-space(text()), 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZÁÉÍÓÚ', 'abcdefghijklmnñopqrstuvwxyzáéíóú'), 'enero 2026')]/ancestor::div[starts-with(@class, 'fc-toolbar')]/following-sibling::div//div[contains(@class, 'fc-basic-view')]
 
@@ -118,7 +110,5 @@
 
  b. //div[contains(@class, 'fc-row')][3]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#bcb9d8')] # Break
 
-
-
-
-https://ecodigital.emergiacc.com/WebEcoPresencia/Eco/VencimientoSesion
+//div[@class='item-info' and contains(text(), 'Visualizar Calendario De Turnos')]
+//div[contains(@class, 'fc-row')]

@@ -35,6 +35,10 @@ class Config(BasePlaywright):
             "btn_turnos": [
                 "//a[@href='#TurnosAsesor']",
             ],
+
+            "btn_success_indicator": [
+                "//div[@class='item-info']",
+            ],
             
             # ERRORES DE LOGIN
             "error_messages": [

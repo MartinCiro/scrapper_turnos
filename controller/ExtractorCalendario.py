@@ -80,7 +80,6 @@ class ExtractorCalendario(BasePlaywright):
             
             return dias_semana[:7]  # Solo los primeros 7 días
         except Exception as e:
-            print(f"⚠️ Error extrayendo días semana: {e}")
             return []
     
     def extraer_numeros_matriz(self):

@@ -60,16 +60,41 @@ class Ejecuciones(BasePlaywright):
                 self.login_instance = Login()
                 
                 # Intentar login
-                if self.login_instance.login():
+                resultado_login = self.login_instance.login()
+                
+                if resultado_login:
                     login_exitoso = True
+                    print("✅ Login exitoso")
                     
-                    # Hacer click en el botón principal
+                    # Pequeña pausa para que se estabilice la sesión
+                    self.helper.human_like_delay(3, 5)
+                    
+                    # Verificar URL actual después del login
+                    if self.login_instance and self.login_instance.page:
+                        self.login_instance.page.url
+                    
+                    # Hacer click en el botón principal (con verificación de URL)
                     if self.click_boton_principal():
-                        self.extraer_y_procesar_calendario()
-                        return True
+                        print("✅ Click en botón exitoso")
+                        
+                        # Esperar a que cargue la página del calendario
+                        self.helper.human_like_delay(5, 7)
+                        
+                        # Extraer y procesar calendario
+                        return self.extraer_y_procesar_calendario()
                     else:
                         print("⚠️  Login exitoso pero no se pudo hacer click en el botón")
                         
+                        # Intentar extraer de todos modos (tal vez ya estamos en la página correcta)
+                        print("🔄 Intentando extraer calendario sin click...")
+                        resultado_extraccion = self.extraer_y_procesar_calendario()
+                        
+                        if resultado_extraccion:
+                            print("✅ Extracción exitosa incluso sin click en botón")
+                            return True
+                        else:
+                            print("❌ No se pudo extraer calendario")
+                            return False
                 else:
                     intentos_login += 1
                     print(f"❌ Intento {intentos_login} fallido")
@@ -81,6 +106,8 @@ class Ejecuciones(BasePlaywright):
             except Exception as e:
                 intentos_login += 1
                 print(f"💥 Error en intento {intentos_login}: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 
                 if intentos_login < max_intentos:
                     print("⏳ Reintentando después de error...")
@@ -97,20 +124,155 @@ class Ejecuciones(BasePlaywright):
     def click_boton_principal(self):
         """
         Hace click en el botón principal de calendario de turnos.
+        Verifica si estamos en la URL correcta, si no, navega a ella.
         """
         try:
-            # Selector específico del botón
-            boton_selector = "//button[starts-with(@class, 'fc-btnVerCalendarioTurnos-button')]"
-            
-            # Intentar con Playwright directamente (sin JavaScript)
-            if self._click_playwright(boton_selector):
-                return True
-            else:
-                print("❌ No se pudo hacer click con Playwright")
+            if not self.login_instance:
+                print("❌ No hay instancia de login")
                 return False
+            
+            page = self.login_instance.page
+            current_url = page.url
+            
+            # Definir la URL objetivo donde debería estar el botón
+            url_objetivo = "https://ecodigital.emergiacc.com/WebEcoPresencia/Master#/TurnosAsesor"
+            
+            # Verificar si ya estamos en la URL correcta
+            if url_objetivo in current_url:
+                # Intentar hacer click en el botón
+                return self._intentar_click_boton()
+            else:
+                try:
+                    page.goto(url_objetivo, wait_until="networkidle", timeout=15000)
+                    self.helper.human_like_delay(3, 5)
                     
+                    # Verificar que la navegación fue exitosa
+                    new_url = page.url
+                    
+                    if url_objetivo in new_url:
+                        # Esperar a que la página cargue completamente
+                        page.wait_for_load_state("networkidle")
+                        self.helper.human_like_delay(2, 4)
+                        
+                        # Intentar hacer click en el botón
+                        return self._intentar_click_boton()
+                    else:
+                        # Intentar de todos modos, tal vez sea una redirección válida
+                        return self._intentar_click_boton()
+                        
+                except Exception as nav_error:
+                    print(f"❌ Error navegando a la URL objetivo: {nav_error}")
+                    
+                    # Intentar hacer click de todos modos (tal vez ya estamos en una página válida)
+                    print("🔄 Intentando click en el botón de todos modos...")
+                    return self._intentar_click_boton()
+            
         except Exception as e:
-            print(f"💥 Error haciendo click: {str(e)}")
+            print(f"💥 Error en click_boton_principal: {str(e)}")
+            return False
+
+    def _intentar_click_boton(self):
+        """
+        Intenta hacer click en el botón usando diferentes estrategias.
+        """
+        try:
+            page = self.login_instance.page
+            
+            # Lista de posibles selectores para el botón (de más específico a más general)
+            boton_selectores = [
+                # Selector específico del botón de ver turnos
+                "//button[starts-with(@class, 'fc-btnVerCalendarioTurnos-button')]",
+                "//button[contains(@class, 'btnVerCalendarioTurnos')]",
+                "//button[contains(text(), 'Ver Turnos')]",
+                "//button[contains(text(), 'Turnos')]",
+                
+                # Selector alternativo si es un enlace
+                "//a[contains(@class, 'btnVerCalendarioTurnos')]",
+                "//a[contains(text(), 'Ver Turnos')]",
+                
+                # Selector general de botones en el calendario
+                "//div[contains(@class, 'fc-toolbar')]//button",
+                "//button[contains(@class, 'fc-button')]",
+                
+                # Selector de última opción
+                "//button[not(@disabled)]",
+            ]
+            
+            # Intentar con cada selector
+            for i, selector in enumerate(boton_selectores):
+                try:
+                    # Buscar elemento
+                    element = page.query_selector(f"xpath={selector}")
+                    
+                    if element:
+                        # Verificar si es visible
+                        if element.is_visible():
+                            # Hacer scroll al elemento
+                            element.scroll_into_view_if_needed()
+                            self.helper.human_like_delay(1, 2)
+                            
+                            # Intentar click directo
+                            try:
+                                element.click()
+                                
+                                # Esperar después del click
+                                self.helper.human_like_delay(2, 3)
+                                return True
+                                
+                            except Exception as click_error:
+                                print(f"⚠️  Error en click directo: {click_error}")
+                                
+                                # Intentar con JavaScript
+                                page.evaluate("""
+                                    (element) => {
+                                        element.click();
+                                    }
+                                """, element)
+                                
+                                self.helper.human_like_delay(2, 3)
+                                return True
+                        else:
+                            # Intentar hacer scroll para hacerlo visible
+                            page.evaluate("""
+                                (element) => {
+                                    element.scrollIntoView({behavior: 'smooth', block: 'center'});
+                                }
+                            """, element)
+                            
+                            self.helper.human_like_delay(1, 2)
+                            
+                            # Verificar si ahora es visible
+                            if element.is_visible():
+                                print("✅ Botón ahora visible después del scroll")
+                                
+                                # Intentar click
+                                try:
+                                    element.click()
+                                    print("✅ Click realizado después del scroll")
+                                    self.helper.human_like_delay(2, 3)
+                                    return True
+                                except:
+                                    # Click con JavaScript
+                                    page.evaluate("(element) => element.click()", element)
+                                    print("✅ Click con JavaScript después del scroll")
+                                    self.helper.human_like_delay(2, 3)
+                                    return True
+                            else:
+                                print("❌ Botón sigue sin estar visible después del scroll")
+                    else:
+                        print(f"❌ Elemento no encontrado con este selector")
+                        
+                except Exception as selector_error:
+                    print(f"⚠️  Error con selector {selector[:50]}...: {selector_error}")
+                    continue
+            
+            # Si llegamos aquí, no se pudo hacer click con ningún selector
+            print("❌ No se pudo encontrar ni hacer click en ningún botón")
+            
+            return False
+            
+        except Exception as e:
+            print(f"💥 Error en _intentar_click_boton: {str(e)}")
             return False
 
     def _click_playwright(self, selector: str) -> bool:
