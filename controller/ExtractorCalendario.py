@@ -26,7 +26,7 @@ class ExtractorCalendario(BasePlaywright):
             "numeros_fila_mes_actual": "//div[contains(@class, 'fc-row')][{fila}]//td[contains(@class, 'fc-day-number') and not(contains(@class, 'fc-other-month'))]",
             
             # Turnos (verde #c1e6c5 o gris #d0d0d0) - plantilla con {fila} dinámico
-            "turnos_fila": "//div[contains(@class, 'fc-row')][{fila}]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#c1e6c5') or contains(@style, '#d0d0d0')]",
+            "turnos_fila": "//div[contains(@class, 'fc-row')][{fila}]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#c1e6c5') or contains(@style, '#d0d0d0') or contains(@style, '#528457')]",
 
             "loader": "//div[@class='em-textLoader' and contains(@style, 'display: none')]",
             
