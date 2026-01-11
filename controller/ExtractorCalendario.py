@@ -27,8 +27,12 @@ class ExtractorCalendario(BasePlaywright):
             
             # Turnos (verde #c1e6c5 o gris #d0d0d0) - plantilla con {fila} dinámico
             "turnos_fila": "//div[contains(@class, 'fc-row')][{fila}]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#c1e6c5') or contains(@style, '#d0d0d0') or contains(@style, '#528457')]",
-
+            
+            # Loader de carga del calendario
             "loader": "//div[@class='em-textLoader' and contains(@style, 'display: none')]",
+
+            # Nombre de usuario logeado
+            "nombre_usuario": "//span[@class='lblUsuarioLogeado']",
             
             # Break (morado #bcb9d8) - plantilla con {fila} dinámico
             "break_fila": "//div[contains(@class, 'fc-row')][{fila}]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#bcb9d8')]"
@@ -323,6 +327,9 @@ class ExtractorCalendario(BasePlaywright):
     
     def extraer_todo(self):
         """Extrae todos los datos del calendario de forma eficiente"""
+
+        # Extraer nombre del usuario
+        nombre_usuario = self.extraer_nombre_usuario()
         
         # Extraer días de la semana
         dias_semana = self.extraer_dias_semana()
@@ -341,6 +348,7 @@ class ExtractorCalendario(BasePlaywright):
         hoy_fecha = datetime.now().strftime("%Y-%m-%d")
         
         return {
+            'nombre_usuario': nombre_usuario,
             'dias_semana': dias_semana,
             'numeros_matriz': numeros_matriz,
             'eventos_principales': eventos_principales,
@@ -349,6 +357,35 @@ class ExtractorCalendario(BasePlaywright):
             'hoy_numero': hoy_numero,
             'hoy_fecha': hoy_fecha
         }
+    
+    def extraer_nombre_usuario(self):
+        """Extrae el nombre del usuario logeado"""
+        try:
+            if self.login_instance:
+                page = self.login_instance.page
+            else:
+                page = self.page
+            
+            selector = self._get_selector("nombre_usuario")
+            
+            # Esperar un momento para que cargue
+            page.wait_for_timeout(2000)
+            
+            # Buscar elemento del nombre de usuario
+            elemento_usuario = page.query_selector(f"xpath={selector}")
+            
+            if elemento_usuario:
+                nombre = elemento_usuario.text_content().strip()
+                if nombre:
+                    print(f"👤 Usuario identificado: {nombre}")
+                    return nombre
+            
+            print("⚠️ No se pudo extraer el nombre de usuario")
+            return None
+            
+        except Exception as e:
+            print(f"⚠️ Error extrayendo nombre de usuario: {e}")
+            return None
     
     def mostrar_datos_extraidos(self, datos):
         """Muestra los datos extraídos de forma organizada por partes"""
@@ -397,6 +434,9 @@ class ExtractorCalendario(BasePlaywright):
         # 5. VISTA DETALLADA POR DÍA (solo días con datos)
         print("\n🔍 VISTA DETALLADA POR DÍA:")
         print("  " + "-" * 50)
+
+        if datos.get('nombre_usuario'):
+            print(f"👤 Usuario: {datos['nombre_usuario']}")
         
         dias_con_datos = False
         for i in range(5):  # Filas
