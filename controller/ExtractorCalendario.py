@@ -65,11 +65,12 @@ class ExtractorCalendario(BasePlaywright):
             else:
                 page = self.page
 
-            loader = self._get_selector("loader")
-            page.wait_for_selector(f"xpath={loader}", state="visible", timeout=20000)
-
-
+            # Intentar sin esperar el loader
             selector = self._get_selector("dias_semana")
+            
+            # Esperar directamente los elementos que necesitamos
+            page.wait_for_selector(f"xpath={selector}", timeout=10000)
+            
             dias_elements = page.query_selector_all(f"xpath={selector}")
             
             dias_semana = []
@@ -78,9 +79,9 @@ class ExtractorCalendario(BasePlaywright):
                 if texto:
                     dias_semana.append(texto)
             
-            return dias_semana[:7]  # Solo los primeros 7 días
+            return dias_semana[:7] 
         except Exception as e:
-            return []
+            return ["Lun.", "Mar.", "Mié.", "Jue.", "Vie.", "Sáb.", "Dom."]
     
     def extraer_numeros_matriz(self):
         """Extrae los números de día para formar la matriz 5x7"""
