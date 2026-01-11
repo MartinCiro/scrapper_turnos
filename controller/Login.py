@@ -143,11 +143,12 @@ class Login(Config):
 
     def _try_cookies_login(self) -> bool:
         """
-        Intenta hacer login usando cookies guardadas
+        Intenta hacer login usando cookies guardadas específicas del usuario
         """
         try:
+            # Usar self.cookies_path (ya es específica por usuario)
             if not path.exists(self.cookies_path):
-                self._log("📁 No hay archivo de cookies guardadas", "info")
+                self._log(f"📁 No hay cookies guardadas para usuario: {self.user_eco}", "info")
                 return False
                 
             cookies = self.helper.load_cookies(self.cookies_path)
@@ -166,7 +167,7 @@ class Login(Config):
             
             # Verificar si el login fue exitoso
             if self.is_logged_in():
-                self._log("✅ Login con cookies exitoso", "success")
+                self._log(f"✅ Login con cookies exitoso para {self.user_eco}", "success")
                 return True
             else:
                 self._log("❌ Cookies no válidas o expiradas", "warning")
