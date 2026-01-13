@@ -1,7 +1,7 @@
 from controller.Config import Config
 from controller.utils.Helpers import Helpers
 from random import uniform
-from os import path, makedirs
+from os import path
 
 class Login(Config):
     """

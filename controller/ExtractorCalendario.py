@@ -2,6 +2,9 @@ from controller.BasePlaywright import BasePlaywright
 from controller.utils.Helpers import Helpers
 from numpy import array as ar, zeros, int32
 from datetime import datetime
+from os import path as os_path, makedirs, remove
+from glob import glob
+from json import dump, load
 
 class ExtractorCalendario(BasePlaywright):
     """
@@ -62,19 +65,14 @@ class ExtractorCalendario(BasePlaywright):
         return selector
     
     def extraer_dias_semana(self):
-        """Extrae los días de la semana del calendario"""
         try:
             if self.login_instance:
                 page = self.login_instance.page
             else:
                 page = self.page
 
-            # Intentar sin esperar el loader
             selector = self._get_selector("dias_semana")
-            
-            # Esperar directamente los elementos que necesitamos
             page.wait_for_selector(f"xpath={selector}", timeout=10000)
-            
             dias_elements = page.query_selector_all(f"xpath={selector}")
             
             dias_semana = []
@@ -83,12 +81,21 @@ class ExtractorCalendario(BasePlaywright):
                 if texto:
                     dias_semana.append(texto)
             
-            return dias_semana[:7] 
+            if len(dias_semana) == 7:
+                return dias_semana
+            else:
+                # Si no son 7, es un error grave: no adivinar
+                raise ValueError(f"Se esperaban 7 días de la semana, se obtuvieron {len(dias_semana)}: {dias_semana}")
+                
         except Exception as e:
-            return ["Lun.", "Mar.", "Mié.", "Jue.", "Vie.", "Sáb.", "Dom."]
+            print(f"⚠️ Error extrayendo días de la semana: {e}")
+            # No usar fallback peligroso
+            # En su lugar, intentar estrategia alternativa o fallar
+            # Para debugging, podrías devolver None y manejarlo arriba
+            raise
     
     def extraer_numeros_matriz(self):
-        """Extrae los números de día para formar la matriz 5x7"""
+        """Extrae los números de día y evita duplicados (p. ej., día 1 repetido)."""
         try:
             if self.login_instance:
                 page = self.login_instance.page
@@ -96,6 +103,7 @@ class ExtractorCalendario(BasePlaywright):
                 page = self.page
             
             matriz_numeros = zeros((5, 7), dtype=int32)
+            dias_vistos = set()  # ← Para evitar duplicados
             
             # Extraer cada fila (1-5)
             for fila_idx in range(5):
@@ -107,11 +115,15 @@ class ExtractorCalendario(BasePlaywright):
                     try:
                         texto = element.text_content().strip()
                         if texto:
-                            # Extraer solo números
                             numero = ''.join(filter(str.isdigit, texto))
                             if numero:
-                                matriz_numeros[fila_idx, col_idx] = int(numero)
-                    except:
+                                dia_num = int(numero)
+                                # Solo asignar si aún no se ha visto este día
+                                if dia_num not in dias_vistos:
+                                    matriz_numeros[fila_idx, col_idx] = dia_num
+                                    dias_vistos.add(dia_num)
+                                # Si ya existe, dejar la celda en 0 (o ignorar)
+                    except Exception:
                         continue
             
             return matriz_numeros
@@ -378,6 +390,7 @@ class ExtractorCalendario(BasePlaywright):
                 nombre = elemento_usuario.text_content().strip()
                 if nombre:
                     print(f"👤 Usuario identificado: {nombre}")
+                    self.nombre_usuario=nombre
                     return nombre
             
             print("⚠️ No se pudo extraer el nombre de usuario")
@@ -463,4 +476,460 @@ class ExtractorCalendario(BasePlaywright):
         
         if not dias_con_datos:
             print("  No hay datos en ningún día del calendario")
+
+    def obtener_ruta_json_usuario(self):
+        """
+        Obtiene la ruta del archivo JSON único para el usuario.
+        """
+        try:
+            if not self.nombre_usuario:
+                return None
+            
+            # Limpiar nombre para usar como directorio
+            nombre_limpio = "".join(c for c in self.nombre_usuario if c.isalnum() or c in (' ', '_')).rstrip()
+            nombre_directorio = nombre_limpio.replace(' ', '_').upper()
+            
+            # Ruta: ./data/usuarios/{NOMBRE_USUARIO}/
+            ruta_base = "./data/usuarios"
+            ruta_usuario = os_path.join(ruta_base, nombre_directorio)
+            
+            # Crear directorios si no existen
+            makedirs(ruta_usuario, exist_ok=True)
+            
+            # Nombre del archivo único
+            nombre_archivo = "calendario.json"
+            ruta_json = os_path.join(ruta_usuario, nombre_archivo)
+            
+            return ruta_json
+            
+        except Exception as e:
+            print(f"⚠️ Error obteniendo ruta JSON usuario: {e}")
+            return None
     
+    def cargar_json_existente(self):
+        """
+        Carga el JSON existente del usuario (si existe).
+        """
+        ruta_json = self.obtener_ruta_json_usuario()
+        if not ruta_json or not os_path.exists(ruta_json):
+            return None
+        
+        try:
+            with open(ruta_json, 'r', encoding='utf-8') as f:
+                return load(f)
+        except Exception as e:
+            print(f"⚠️ Error cargando JSON existente: {e}")
+            return None
+    
+    def comparar_y_actualizar(self, datos_extractos):
+        """
+        Compara datos extraídos con JSON existente y actualiza con cambios.
+        Esta es la NUEVA lógica: un solo archivo JSON por usuario.
+        """
+        try:
+            # 1. Generar JSON con datos nuevos
+            calendario_nuevo = self.generar_json_calendario(datos_extractos)
+            if not calendario_nuevo:
+                print("❌ No se pudo generar JSON con datos nuevos")
+                return None
+            
+            # 2. Cargar JSON existente (si hay)
+            calendario_existente = self.cargar_json_existente()
+            
+            # 3. Si no existe archivo previo, guardar directamente
+            if not calendario_existente:
+                print("📝 Primera ejecución para este usuario")
+                return self._guardar_json_actualizado(calendario_nuevo)
+            
+            # 4. Comparar y marcar cambios
+            calendario_actualizado = self._detectar_cambios(
+                calendario_existente, 
+                calendario_nuevo
+            )
+            
+            # 5. Guardar versión actualizada
+            return self._guardar_json_actualizado(calendario_actualizado)
+            
+        except Exception as e:
+            print(f"❌ Error comparando y actualizando: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _detectar_cambios(self, calendario_antiguo, calendario_nuevo):
+        """
+        Detecta cambios entre dos versiones del calendario y los marca.
+        Correcciones clave:
+        1. Detección precisa de breaks usando horario (no existencia de objeto)
+        2. Manejo de días eliminados
+        3. Comparación de duración de breaks
+        """
+        try:
+            # Crear copia del nuevo calendario para modificarlo
+            calendario_actualizado = calendario_nuevo.copy()
+            
+            # Crear diccionarios por día para fácil acceso
+            dias_antiguos = {d["dia"]: d for d in calendario_antiguo["calendario"]}
+            dias_nuevos = {d["dia"]: d for d in calendario_actualizado["calendario"]}
+            
+            cambios_detectados = False
+            total_cambios = 0
+            dias_con_cambios = []
+            dias_eliminados = []
+            
+            # 1. Comparar días existentes en el nuevo calendario
+            for dia_num, dia_nuevo in dias_nuevos.items():
+                dia_antiguo = dias_antiguos.get(dia_num)
+                cambios_dia = []
+                cambio_detectado = False
+                
+                if not dia_antiguo:
+                    # Día nuevo (no existía antes)
+                    cambios_dia = ["nuevo_dia"]
+                    cambio_detectado = True
+                else:
+                    # Comparar campos específicos
+                    # a) Turno
+                    turno_antiguo = dia_antiguo.get("turno", {})
+                    turno_nuevo = dia_nuevo.get("turno", {})
+                    
+                    if turno_antiguo.get("horario") != turno_nuevo.get("horario"):
+                        cambios_dia.append("turno.horario")
+                    
+                    if turno_antiguo.get("tipo") != turno_nuevo.get("tipo"):
+                        cambios_dia.append("turno.tipo")
+                    
+                    # b) Break
+                    break_antiguo = dia_antiguo.get("break", {})
+                    break_nuevo = dia_nuevo.get("break", {})
+                    
+                    # Verificar existencia real de break (horario no nulo)
+                    existe_break_antiguo = break_antiguo.get("horario") is not None
+                    existe_break_nuevo = break_nuevo.get("horario") is not None
+                    
+                    if existe_break_antiguo != existe_break_nuevo:
+                        cambios_dia.append("break.existencia")
+                    
+                    if existe_break_antiguo and existe_break_nuevo:
+                        if break_antiguo.get("horario") != break_nuevo.get("horario"):
+                            cambios_dia.append("break.horario")
+                        if break_antiguo.get("duracion_minutos") != break_nuevo.get("duracion_minutos"):
+                            cambios_dia.append("break.duracion")
+                    
+                    # c) Día libre
+                    es_libre_antiguo = dia_antiguo.get("es_dia_libre", False)
+                    es_libre_nuevo = dia_nuevo.get("es_dia_libre", False)
+                    
+                    if es_libre_antiguo != es_libre_nuevo:
+                        cambios_dia.append("es_dia_libre")
+                        # Si cambia estado de día libre, los campos de turno también cambian
+                        if es_libre_nuevo:
+                            cambios_dia.extend(["turno.horario", "turno.tipo"])
+                
+                # Si hay cambios, actualizar información
+                if cambios_dia:
+                    cambio_detectado = True
+                    total_cambios += 1
+                    dias_con_cambios.append(dia_num)
+                    
+                    # Obtener historial anterior
+                    historial_anterior = dia_antiguo.get("cambios", {}).get("historial", []) if dia_antiguo else []
+                    
+                    # Crear nueva entrada de historial
+                    nueva_entrada = {
+                        "fecha": datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "cambio": f"Modificados: {', '.join(cambios_dia)}",
+                        "detalle": {}
+                    }
+                    
+                    if dia_antiguo:
+                        nueva_entrada["detalle"] = {
+                            "antes": {
+                                "turno": dia_antiguo.get("turno"),
+                                "break": dia_antiguo.get("break"),
+                                "es_dia_libre": dia_antiguo.get("es_dia_libre")
+                            },
+                            "despues": {
+                                "turno": dia_nuevo.get("turno"),
+                                "break": dia_nuevo.get("break"),
+                                "es_dia_libre": dia_nuevo.get("es_dia_libre")
+                            }
+                        }
+                    
+                    # Actualizar información de cambios
+                    dia_nuevo["cambios"] = {
+                        "ha_cambiado": True,
+                        "detalle_cambios": f"Cambios en: {', '.join(cambios_dia)}",
+                        "campos_modificados": cambios_dia,
+                        "ultima_modificacion": datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "historial": historial_anterior + [nueva_entrada]
+                    }
+                else:
+                    # Sin cambios - mantener historial anterior
+                    historial_previo = []
+                    if dia_antiguo and "cambios" in dia_antiguo:
+                        historial_previo = dia_antiguo["cambios"].get("historial", [])
+                    
+                    dia_nuevo["cambios"] = {
+                        "ha_cambiado": False,
+                        "detalle_cambios": None,
+                        "campos_modificados": [],
+                        "ultima_modificacion": None,
+                        "historial": historial_previo
+                    }
+                
+                if cambio_detectado:
+                    cambios_detectados = True
+            
+            # 2. Detectar días eliminados (existen en antiguo pero no en nuevo)
+            for dia_num, dia_antiguo in dias_antiguos.items():
+                if dia_num not in dias_nuevos:
+                    dias_eliminados.append(dia_num)
+                    total_cambios += 1
+                    cambios_detectados = True
+            
+            # 3. Actualizar metadata con información de cambios
+            calendario_actualizado["metadata"]["tiene_cambios_versiones_anteriores"] = cambios_detectados
+            calendario_actualizado["metadata"]["ultima_comparacion"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+            calendario_actualizado["metadata"]["ultima_actualizacion"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+            
+            # 4. Añadir resumen de cambios
+            resumen = {
+                "ultima_ejecucion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "total_cambios": total_cambios,
+                "dias_con_cambios": dias_con_cambios,
+                "dias_eliminados": dias_eliminados,
+                "se_detectaron_cambios": cambios_detectados
+            }
+            
+            calendario_actualizado["resumen_cambios"] = resumen
+            
+            # Mensajes de feedback
+            if cambios_detectados:
+                if dias_con_cambios:
+                    print(f"🔄 Detectados {len(dias_con_cambios)} días modificados: {dias_con_cambios}")
+                if dias_eliminados:
+                    print(f"🗑️  Detectados {len(dias_eliminados)} días eliminados: {dias_eliminados}")
+            else:
+                print("✅ Sin cambios detectados respecto a la versión anterior")
+            
+            return calendario_actualizado
+            
+        except Exception as e:
+            print(f"❌ Error grave detectando cambios: {e}")
+            import traceback
+            traceback.print_exc()
+            # En caso de error, mantener el nuevo calendario sin cambios
+            return calendario_nuevo
+        
+    def _guardar_json_actualizado(self, calendario):
+        """
+        Guarda el JSON actualizado (sobrescribe el anterior).
+        """
+        try:
+            ruta_json = self.obtener_ruta_json_usuario()
+            if not ruta_json:
+                print("❌ No se pudo obtener ruta para guardar JSON")
+                return False
+            
+            # Crear backup del archivo anterior (si existe)
+            if os_path.exists(ruta_json):
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                ruta_backup = ruta_json.replace(".json", f"_backup_{timestamp}.json")
+                import shutil
+                shutil.copy2(ruta_json, ruta_backup)
+                print(f"💾 Backup creado: {os_path.basename(ruta_backup)}")
+            
+            # Guardar nuevo JSON
+            with open(ruta_json, 'w', encoding='utf-8') as f:
+                dump(calendario, f, ensure_ascii=False, indent=2)
+            
+            print(f"✅ Calendario actualizado guardado: {ruta_json}")
+            
+            # Limpiar backups antiguos (mantener solo los 2 más recientes)
+            self._limpiar_backups_viejos(ruta_json)
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error guardando JSON actualizado: {e}")
+            return False
+    
+    def _limpiar_backups_viejos(self, ruta_json_principal):
+        """
+        Limpia backups viejos, manteniendo solo los 2 más recientes.
+        """
+        try:
+            directorio = os_path.dirname(ruta_json_principal)
+            nombre_base = os_path.basename(ruta_json_principal).replace(".json", "")
+            
+            # Buscar todos los backups
+            patron_backup = os_path.join(directorio, f"{nombre_base}_backup_*.json")
+            backups = glob(patron_backup)
+            
+            # Ordenar por fecha (más reciente primero)
+            backups.sort(key=os_path.getmtime, reverse=True)
+            
+            # Mantener solo 1 backup más recientes
+            for backup in backups[1:]:
+                try:
+                    remove(backup)
+                    print(f"🗑️  Eliminado backup antiguo: {os_path.basename(backup)}")
+                except Exception as e:
+                    print(f"⚠️  Error eliminando backup {backup}: {e}")
+                    
+        except Exception as e:
+            print(f"⚠️  Error limpiando backups: {e}")
+    
+    def ejecutar_proceso_simplificado(self):
+        """
+        Ejecuta el proceso simplificado: extraer, comparar y actualizar un solo archivo.
+        """
+        try:
+            print("🔄 Extrayendo datos del calendario...")
+            
+            # 1. Extraer datos
+            datos = self.extraer_todo()
+            
+            # 2. Mostrar datos extraídos
+            # self.mostrar_datos_extraidos(datos)
+            
+            # 3. Comparar y actualizar archivo único
+            resultado = self.comparar_y_actualizar(datos)
+            
+            if resultado:                
+                # Mostrar resumen de cambios si existe
+                ruta_json = self.obtener_ruta_json_usuario()
+                if ruta_json and os_path.exists(ruta_json):
+                    with open(ruta_json, 'r', encoding='utf-8') as f:
+                        json_data = load(f)
+                    
+                    if json_data.get("resumen_cambios", {}).get("se_detectaron_cambios", False):
+                        print("🔄 Cambios detectados")
+                    else:
+                        print("✅ Sin cambios en esta ejecución")
+                
+                return resultado
+            else:
+                print("❌ Error en el proceso")
+                return None
+                
+        except Exception as e:
+            print(f"💥 Error en ejecución: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def generar_json_calendario(self, datos_extractos):
+        """
+        Genera la estructura JSON básica del calendario.
+        """
+        try:
+            # Información del usuario
+            nombre_usuario = datos_extractos.get('nombre_usuario', 'Usuario Desconocido')
+            
+            usuario_info = {
+                "id": nombre_usuario.upper().replace(" ", "_"),
+                "nombre_completo": nombre_usuario
+            }
+            
+            # Información del período
+            periodo_info = {
+                "mes": datetime.now().strftime("%B %Y"),
+                "dias_totales": 0,
+                "dias_laborables": 0,
+                "dias_libres": 0,
+                "fecha_generacion": datetime.now().strftime("%Y-%m-%d")
+            }
+            
+            # Calendario detallado
+            calendario_detallado = []
+            numeros = datos_extractos['numeros_matriz']
+            
+            # Mapeo simple de días abreviados a completos
+            dias_semana_completos = {
+                "Lun.": "Lunes", "Mar.": "Martes", "Mié.": "Miércoles",
+                "Jue.": "Jueves", "Vie.": "Viernes", "Sáb.": "Sábado",
+                "Dom.": "Domingo"
+            }
+            
+            for i in range(5):
+                for j in range(7):
+                    dia_num = numeros[i, j]
+                    if dia_num > 0:
+                        # Actualizar contadores
+                        periodo_info["dias_totales"] += 1
+                        
+                        turno_raw = datos_extractos['eventos_principales'][i, j]
+                        break_raw = datos_extractos['eventos_secundarios'][i, j]
+                        
+                        # Obtener día de la semana
+                        dia_semana_key = datos_extractos['dias_semana'][j] if j < len(datos_extractos['dias_semana']) else f"Día {j+1}"
+                        dia_semana = dias_semana_completos.get(dia_semana_key, dia_semana_key)
+                        
+                        # Determinar si es día libre
+                        es_dia_libre = turno_raw == "Día Libre" if turno_raw else False
+                        
+                        if es_dia_libre:
+                            periodo_info["dias_libres"] += 1
+                            turno_info = {
+                                "horario": None,
+                                "tipo": "Día Libre",
+                                "duracion_horas": 0
+                            }
+                        else:
+                            periodo_info["dias_laborables"] += 1
+                            # Extraer información básica del turno
+                            turno_info = {
+                                "horario": turno_raw.split()[0] + ":00 - " + turno_raw.split()[2] + ":00" if turno_raw and len(turno_raw.split()) >= 3 else None,
+                                "tipo": " ".join(turno_raw.split()[3:]) if turno_raw and len(turno_raw.split()) > 3 else "Dimensionado",
+                                "duracion_horas": 6  # Valor por defecto
+                            }
+                        
+                        # Información del break
+                        break_info = {
+                            "horario": break_raw.split("Break")[0].strip() if break_raw else None,
+                            "duracion_minutos": 20  # Valor por defecto
+                        }
+                        
+                        dia_info = {
+                            "dia": int(dia_num),
+                            "dia_semana": dia_semana,
+                            "turno": turno_info,
+                            "break": break_info,
+                            "es_dia_libre": es_dia_libre,
+                            "cambios": {
+                                "ha_cambiado": False,
+                                "detalle_cambios": None,
+                                "campos_modificados": [],
+                                "ultima_modificacion": None,
+                                "historial": []
+                            }
+                        }
+                        
+                        calendario_detallado.append(dia_info)
+            
+            # Ordenar por día
+            calendario_detallado.sort(key=lambda x: x["dia"])
+            
+            # Metadata con fecha y hora de última ejecución
+            metadata = {
+                "version": "1.0",
+                "ultima_actualizacion": datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "tiene_cambios_versiones_anteriores": False
+            }
+            
+            # Estructura completa
+            calendario_json = {
+                "usuario": usuario_info,
+                "periodo": periodo_info,
+                "calendario": calendario_detallado,
+                "estadisticas": {},
+                "metadata": metadata
+            }
+            
+            return calendario_json
+            
+        except Exception as e:
+            print(f"❌ Error generando JSON: {e}")
+            return None

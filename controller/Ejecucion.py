@@ -3,6 +3,9 @@ from controller.Login import Login
 from controller.utils.Helpers import Helpers
 from controller.ExtractorCalendario import ExtractorCalendario
 
+from os import path as os_path
+from json import load
+
 class Ejecuciones(BasePlaywright):
     """
     Clase encargada de ejecutar pruebas y acciones en EcoDigital.
@@ -16,30 +19,51 @@ class Ejecuciones(BasePlaywright):
 
     def extraer_y_procesar_calendario(self):
         """
-        Extrae y procesa los datos del calendario después del login
+        Ejecuta el proceso completo de extracción, comparación y guardado.
         """
         try:
-            if not self.login_instance or not self.login_instance.is_logged_in():
-                print("❌ No hay sesión activa")
-                return None
-            
-            # Crear extractor pasando la instancia de login
+            # 1. EXTRAER datos del portal
+            print("🔄 Extrayendo datos del calendario...")
             extractor = ExtractorCalendario(self.login_instance)
             
-            # Extraer todos los datos
-            datos_calendario = extractor.extraer_todo()
+            # 2. EJECUTAR proceso simplificado
+            exito = extractor.ejecutar_proceso_simplificado()
             
-            # Mostrar datos extraídos
-            extractor.mostrar_datos_extraidos(datos_calendario)
-            
-            
-            return {
-                'datos_extraidos': datos_calendario
-            }
-            
+            if exito:  # Devuelve True/False
+                print("\n🎉 Proceso completado exitosamente")
+                
+                # Obtener datos actualizados para mostrar resumen
+                ruta_json = extractor.obtener_ruta_json_usuario()
+                if ruta_json and os_path.exists(ruta_json):
+                    with open(ruta_json, 'r', encoding='utf-8') as f:
+                        json_data = load(f)
+                    
+                    if json_data.get("resumen_cambios", {}).get("se_detectaron_cambios", False):
+                        print(f"🔄 Cambios detectados: {json_data['resumen_cambios']['total_cambios']} días modificados")
+                        print(f"📅 Días con cambios: {json_data['resumen_cambios']['dias_con_cambios']}")
+                    else:
+                        print(f"✅ Sin cambios detectados")
+                
+                return {
+                    "exito": True,
+                    "usuario": extractor.nombre_usuario,
+                    "ruta_json": ruta_json
+                }
+            else:
+                print("❌ Error en el proceso")
+                return {
+                    "exito": False,
+                    "error": "No se pudo completar el proceso"
+                }
+                
         except Exception as e:
-            print(f"💥 Error extrayendo calendario: {e}")
-            return None
+            print(f"💥 Error en ejecución: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "exito": False,
+                "error": str(e)
+            }
 
     def ejecuta_login_y_boton(self):
         """
