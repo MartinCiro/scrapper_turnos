@@ -56,18 +56,11 @@ class BasePlaywright:
         return self.playwright.chromium.launch(
             headless=self.headless,
             args=[
-                '--no-sandbox',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-dev-shm-usage',
-                '--no-first-run',
-                '--no-default-browser-check',
-                '--disable-features=VizDisplayCompositor',
-                '--disable-background-timer-throttling',
-                '--disable-backgrounding-occluded-windows',
-                '--disable-renderer-backgrounding',
-                '--disable-web-security',
-                '--disable-features=TranslateUI',
-                '--disable-ipc-flooding-protection'
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-blink-features=AutomationControlled",
+                "--start-maximized",
             ]
         )
 
