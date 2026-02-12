@@ -1,15 +1,13 @@
 services:
   python_bot:
-    container_name: certificado_monitor
+    container_name: scrapper_turnos_back
     build:
       context: .
       dockerfile: Dockerfile
     working_dir: /app
-    volumes:
-      - .:/app
     environment:
-      - USER=${USER}
-      - PASSWD=${PASSWD}
+      - USER_ECO=${USER_ECO}
+      - PASSWD_ECO=${PASSWD_ECO}
       - HEADLESS=${HEADLESS}
       - DISPLAY=:0
       - PYTHONUNBUFFERED=1

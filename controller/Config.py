@@ -36,8 +36,8 @@ class Config(BasePlaywright):
         self.helper.create_directories()
         
         # 🔐 CREDENCIALES ECODIGITAL
-        self.user_eco = self._get_env_variable("USER")
-        self.ps_eco = self._get_env_variable("PASSWD")
+        self.user_eco = self._get_env_variable("USER_ECO")
+        self.ps_eco = self._get_env_variable("PASSWD_ECO")
         
         # 🌐 URLs ECODIGITAL
         self.eco_base_url = "https://ecodigital.emergiacc.com"

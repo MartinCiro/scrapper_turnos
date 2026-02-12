@@ -72,16 +72,15 @@ class BasePlaywright:
         )
 
     def _create_context(self):
-        """Crea un contexto con configuración humana"""
         return self.browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
+            viewport={'width': 1366, 'height': 768},
             user_agent=choice(self.user_agents),
-            locale='es-ES',
-            timezone_id='Europe/Madrid',
-            permissions=['notifications'],
+            locale='es-CO',
+            timezone_id='America/Bogota',
+            geolocation={"latitude": 4.7110, "longitude": -74.0721},
+            permissions=["geolocation"],
             extra_http_headers={
-                'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
             }
         )
 
