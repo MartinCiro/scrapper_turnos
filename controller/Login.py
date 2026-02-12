@@ -1,10 +1,7 @@
-# controller/LoginHTTP.py (versión corregida para VPS)
-import requests
-import json
-import time
+from requests import Session, exceptions
+from json import load, dump
 from datetime import datetime
 from controller.Config import Config
-from random import uniform
 
 class Login(Config):
     """
@@ -14,7 +11,7 @@ class Login(Config):
 
     def __init__(self) -> None:
         super().__init__()
-        self.session = requests.Session()
+        self.session = Session()
         
         # 🔑 HEADERS COMPLETOS con espacios al final (¡OBLIGATORIO PARA CLOUDFLARE!)
         self.session.headers.update({
@@ -129,7 +126,7 @@ class Login(Config):
             self._log("❌ Login fallido (respuesta inesperada)", "error")
             return False
             
-        except requests.exceptions.Timeout:
+        except exceptions.Timeout:
             self._log("❌ Timeout en la conexión", "error")
             return False
         except Exception as e:
@@ -155,7 +152,7 @@ class Login(Config):
                 return False
             
             with open(self.cookies_path, 'r') as f:
-                cookies = json.load(f)
+                cookies = load(f)
             
             if not cookies:
                 return False
@@ -202,7 +199,7 @@ class Login(Config):
                 })
             
             with open(self.cookies_path, 'w') as f:
-                json.dump(cookies, f, indent=2)
+                dump(cookies, f, indent=2)
             
             self._log(f"💾 Cookies guardadas: {self.cookies_path}", "success")
             
