@@ -432,6 +432,29 @@ class BasePlaywright:
             except:
                 continue
         return False
+    
+    def get_selector(self, tipo: str, selector, fila: int = None) -> str:
+        """
+        Obtiene un selector formateado con el número de fila.
+        
+        Args:
+            tipo: 'numeros_fila', 'turnos_fila', 'break_fila', o 'dias_semana'
+            fila: Número de fila (1-5) para selectores que lo requieren
+        
+        Returns:
+            Selector XPath formateado
+        """
+        if tipo not in selector:
+            raise ValueError(f"Tipo de selector desconocido: {tipo}")
+        
+        selectorTipo = selector[tipo]
+        
+        if fila is not None:
+            if "{fila}" not in selectorTipo:
+                raise ValueError(f"Selector '{tipo}' no espera parámetro de fila")
+            return selectorTipo.format(fila=fila)
+        
+        return selectorTipo
 
     def __del__(self):
         """Limpieza segura al destruir la instancia"""

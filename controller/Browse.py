@@ -71,44 +71,6 @@ class Browse_web(Config):
             finally:
                 self.__del__()
     
-    def __checked_ocr(self):
-        ocr = CaptchaExtractor()
-        attempts = 0
-
-        while attempts < 3:
-            base = self.get_elements_attribute(By.XPATH, "//img[@id='vCAPTCHAIMAGE']")
-            ocr_solved = ocr.extract_with_gemini(self.helper.decode_image_base64(base[0]))
-
-            self.send_keys(
-                By.XPATH, 
-                "//input[@id='vCAPTCHATEXT']", 
-                ocr_solved, 
-                clear=False
-            )
-            self.send_keys(
-                By.XPATH, 
-                "//input[@id='CONSULTAR']", 
-                None, 
-                clear=False, 
-                special_key=["ENTER"],
-                delay=0.3
-            )
-
-            count = self.count_elements(
-                By.XPATH,
-                "//span[contains(normalize-space(text()), 'ANALISIS Y DESARROLLO DE SOFTWARE.')]"
-            )
-            if count > 0:
-                    return True
-            
-            if self.wait_for_element(By.XPATH, "//div[contains(@class, 'toast-message') and contains(text(), 'El texto digitado no corresponde con la imagen')]", timeout=2):
-                print(f"Intento {attempts + 1}: count={count}")
-                sleep(1)
-
-            attempts += 1
-
-        return False
-
     def navigate_certified(self):
         self.__navigate_to_aprendiz()
         self.__navigate_to_certified()
