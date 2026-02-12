@@ -1,5 +1,4 @@
 from controller.BasePlaywright import BasePlaywright
-from controller.utils.Helpers import Helpers
 from numpy import array as ar, zeros, int32
 from datetime import datetime
 from os import path as os_path, makedirs, remove
@@ -14,7 +13,6 @@ class ExtractorCalendario(BasePlaywright):
     def __init__(self, login_instance=None):
         """Constructor que inicializa el navegador Playwright"""
         super().__init__()
-        self.helper = Helpers()
         self.login_instance = login_instance
         
         # Selectores base para extracción de datos del calendario
@@ -40,38 +38,12 @@ class ExtractorCalendario(BasePlaywright):
             # Break (morado #bcb9d8) - plantilla con {fila} dinámico
             "break_fila": "//div[contains(@class, 'fc-row')][{fila}]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#bcb9d8')]"
         }
-    
-    def _get_selector(self, tipo: str, fila: int = None) -> str:
-        """
-        Obtiene un selector formateado con el número de fila.
-        
-        Args:
-            tipo: 'numeros_fila', 'turnos_fila', 'break_fila', o 'dias_semana'
-            fila: Número de fila (1-5) para selectores que lo requieren
-        
-        Returns:
-            Selector XPath formateado
-        """
-        if tipo not in self.selectores_base:
-            raise ValueError(f"Tipo de selector desconocido: {tipo}")
-        
-        selector = self.selectores_base[tipo]
-        
-        if fila is not None:
-            if "{fila}" not in selector:
-                raise ValueError(f"Selector '{tipo}' no espera parámetro de fila")
-            return selector.format(fila=fila)
-        
-        return selector
-    
+     
     def extraer_dias_semana(self):
         try:
-            if self.login_instance:
-                page = self.login_instance.page
-            else:
-                page = self.page
+            page = self.login_instance.page if self.login_instance else self.page
 
-            selector = self._get_selector("dias_semana")
+            selector = self.get_selector("dias_semana", self.selectores_base)
             page.wait_for_selector(f"xpath={selector}", timeout=10000)
             dias_elements = page.query_selector_all(f"xpath={selector}")
             
@@ -84,7 +56,6 @@ class ExtractorCalendario(BasePlaywright):
             if len(dias_semana) == 7:
                 return dias_semana
             else:
-                # Si no son 7, es un error grave: no adivinar
                 raise ValueError(f"Se esperaban 7 días de la semana, se obtuvieron {len(dias_semana)}: {dias_semana}")
                 
         except Exception as e:
@@ -97,17 +68,14 @@ class ExtractorCalendario(BasePlaywright):
     def extraer_numeros_matriz(self):
         """Extrae los números de día y evita duplicados (p. ej., día 1 repetido)."""
         try:
-            if self.login_instance:
-                page = self.login_instance.page
-            else:
-                page = self.page
+            page = self.login_instance.page if self.login_instance else self.page
             
             matriz_numeros = zeros((5, 7), dtype=int32)
             dias_vistos = set()  # ← Para evitar duplicados
             
             # Extraer cada fila (1-5)
             for fila_idx in range(5):
-                selector = self._get_selector("numeros_fila", fila_idx + 1)
+                selector = self.get_selector("numeros_fila", self.selectores_base, fila_idx + 1)
                 elements = page.query_selector_all(f"xpath={selector}")
                 
                 # Procesar hasta 7 columnas
@@ -135,10 +103,7 @@ class ExtractorCalendario(BasePlaywright):
     def extraer_turnos_matriz(self):
         """Extrae los turnos principales (eventos principales)"""
         try:
-            if self.login_instance:
-                page = self.login_instance.page
-            else:
-                page = self.page
+            page = self.login_instance.page if self.login_instance else self.page
             
             eventos_principales = ar([
                 ["", "", "", "", "", "", ""],
@@ -150,7 +115,7 @@ class ExtractorCalendario(BasePlaywright):
             
             # Extraer cada fila (1-5)
             for fila_idx in range(5):
-                selector = self._get_selector("turnos_fila", fila_idx + 1)
+                selector = self.get_selector("turnos_fila", self.selectores_base, fila_idx + 1)
                 elements = page.query_selector_all(f"xpath={selector}")
                 
                 # Procesar hasta 7 columnas
@@ -177,10 +142,7 @@ class ExtractorCalendario(BasePlaywright):
     def extraer_breaks_matriz(self):
         """Extrae los breaks (eventos secundarios)"""
         try:
-            if self.login_instance:
-                page = self.login_instance.page
-            else:
-                page = self.page
+            page = self.login_instance.page if self.login_instance else self.page
             
             eventos_secundarios = ar([
                 ["", "", "", "", "", "", ""],
@@ -192,7 +154,7 @@ class ExtractorCalendario(BasePlaywright):
             
             # Extraer cada fila (1-5)
             for fila_idx in range(5):
-                selector = self._get_selector("break_fila", fila_idx + 1)
+                selector = self.get_selector("break_fila", self.selectores_base, fila_idx + 1)
                 elements = page.query_selector_all(f"xpath={selector}")
                 
                 # Procesar hasta 7 columnas
@@ -221,10 +183,7 @@ class ExtractorCalendario(BasePlaywright):
         Extrae turnos y breaks usando posiciones X (bounding box) para mapear correctamente ambos.
         """
         try:
-            if self.login_instance:
-                page = self.login_instance.page
-            else:
-                page = self.page
+            page = self.login_instance.page if self.login_instance else self.page
             
             eventos_principales = ar([
                 ["", "", "", "", "", "", ""],
@@ -246,7 +205,7 @@ class ExtractorCalendario(BasePlaywright):
                 fila_num = fila_idx + 1
                 
                 # 1. Identificar columnas del mes actual y sus posiciones X
-                selector_todos = self._get_selector("numeros_fila", fila_num)
+                selector_todos = self.get_selector("numeros_fila", self.selectores_base, fila_num)
                 todas_celdas = page.query_selector_all(f"xpath={selector_todos}")
                 
                 columnas_info = []  # [(col_idx, x_center), ...]
@@ -258,7 +217,7 @@ class ExtractorCalendario(BasePlaywright):
                             columnas_info.append((col_idx, x_center))
                 
                 # 2. EXTRAER TURNOS usando posición X
-                selector_turnos = self._get_selector("turnos_fila", fila_num)
+                selector_turnos = self.get_selector("turnos_fila", self.selectores_base, fila_num)
                 elements_turnos = page.query_selector_all(f"xpath={selector_turnos}")
                 
                 for element in elements_turnos:
@@ -287,7 +246,7 @@ class ExtractorCalendario(BasePlaywright):
                         continue
                 
                 # 3. EXTRAER BREAKS usando posición X
-                selector_breaks = self._get_selector("break_fila", fila_num)
+                selector_breaks = self.get_selector("break_fila", self.selectores_base, fila_num)
                 elements_breaks = page.query_selector_all(f"xpath={selector_breaks}")
                 
                 for element in elements_breaks:
@@ -331,11 +290,8 @@ class ExtractorCalendario(BasePlaywright):
             return empty_matrix, empty_matrix
     
     def extraer_matriz_festivos(self):
-        """Extrae días festivos (si se pueden identificar)"""
-        try:
-            return zeros((5, 7), dtype=bool)
-        except:
-            return zeros((5, 7), dtype=bool)
+        """Extrae días festivos"""
+        return zeros((5, 7), dtype=bool)
     
     def extraer_todo(self):
         """Extrae todos los datos del calendario de forma eficiente"""
@@ -373,12 +329,9 @@ class ExtractorCalendario(BasePlaywright):
     def extraer_nombre_usuario(self):
         """Extrae el nombre del usuario logeado"""
         try:
-            if self.login_instance:
-                page = self.login_instance.page
-            else:
-                page = self.page
+            page = self.login_instance.page if self.login_instance else self.page
             
-            selector = self._get_selector("nombre_usuario")
+            selector = self.get_selector("nombre_usuario", self.selectores_base)
             
             # Esperar un momento para que cargue
             page.wait_for_timeout(2000)
@@ -736,8 +689,8 @@ class ExtractorCalendario(BasePlaywright):
             if os_path.exists(ruta_json):
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 ruta_backup = ruta_json.replace(".json", f"_backup_{timestamp}.json")
-                import shutil
-                shutil.copy2(ruta_json, ruta_backup)
+                from shutil import copy2
+                copy2(ruta_json, ruta_backup)
                 print(f"💾 Backup creado: {os_path.basename(ruta_backup)}")
             
             # Guardar nuevo JSON
@@ -794,18 +747,24 @@ class ExtractorCalendario(BasePlaywright):
             # 2. Mostrar datos extraídos
             # self.mostrar_datos_extraidos(datos)
             
-            # 3. Comparar y actualizar archivo único
+            # 3. Verificar si el JSON existe ANTES de comparar
+            ruta_json = self.obtener_ruta_json_usuario()
+            json_existe = ruta_json and os_path.exists(ruta_json)
+            
+            # 4. Comparar y actualizar archivo único
             resultado = self.comparar_y_actualizar(datos)
             
             if resultado:                
                 # Mostrar resumen de cambios si existe
-                ruta_json = self.obtener_ruta_json_usuario()
                 if ruta_json and os_path.exists(ruta_json):
                     with open(ruta_json, 'r', encoding='utf-8') as f:
                         json_data = load(f)
                     
-                    if json_data.get("resumen_cambios", {}).get("se_detectaron_cambios", False):
-                        print("🔄 Cambios detectados")
+                    # Si el JSON no existía antes, es una nueva extracción
+                    if not json_existe:
+                        print("📝 Nueva extracción (no existía JSON anterior)")
+                    elif json_data.get("resumen_cambios", {}).get("se_detectaron_cambios", False):
+                        print("🔄 Cambios detectados respecto a versión anterior")
                     else:
                         print("✅ Sin cambios en esta ejecución")
                 

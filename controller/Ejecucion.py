@@ -3,8 +3,11 @@ from controller.Login import Login
 from controller.utils.Helpers import Helpers
 from controller.ExtractorCalendario import ExtractorCalendario
 
-from os import path as os_path
+import datetime 
+
+from os import path as os_path, listdir, rmdir, remove
 from json import load
+
 
 class Ejecuciones(BasePlaywright):
     """
@@ -16,17 +19,140 @@ class Ejecuciones(BasePlaywright):
         super().__init__()
         self.helper = Helpers()
         self.login_instance = None
+        self.json_fue_eliminado = False
+
+    def _verificar_y_eliminar_json_antiguo(self, ruta_json):
+        """
+        Verifica si el JSON tiene más de 2 días usando fecha_generacion y lo elimina.
+        Devuelve True si fue eliminado, False si no.
+        """
+        try:
+            if not ruta_json or not os_path.exists(ruta_json):
+                print(f"ℹ️  Archivo JSON no existe: {ruta_json}")
+                return False
+            
+            print(f"📁 Verificando antigüedad del JSON: {ruta_json}")
+            
+            # Leer el JSON para obtener fecha_generacion
+            with open(ruta_json, 'r', encoding='utf-8') as f:
+                json_data = load(f)
+            
+            # Obtener fecha_generacion del JSON
+            fecha_generacion_str = json_data.get("periodo", {}).get("fecha_generacion")
+            
+            if not fecha_generacion_str:
+                print("⚠️  No se encontró 'fecha_generacion' en el JSON, usando fecha de modificación del archivo")
+                # Fallback a fecha de modificación del archivo
+                fecha_generacion = datetime.fromtimestamp(os_path.getmtime(ruta_json))
+            else:
+                try:
+                    # Parsear fecha_generacion (formato: YYYY-MM-DD)
+                    fecha_generacion = datetime.strptime(fecha_generacion_str, "%Y-%m-%d")
+                except ValueError:
+                    print(f"⚠️  Formato de fecha_generacion inválido: {fecha_generacion_str}")
+                    return False
+            
+            # Fecha actual
+            fecha_actual = datetime.now()
+            
+            # Calcular diferencia en días
+            diferencia_dias = (fecha_actual - fecha_generacion).days
+            
+            # Mostrar información de fechas
+            print(f"📅 Fecha de generación del JSON: {fecha_generacion.strftime('%d/%b/%Y')}")
+            print(f"📅 Día actual: {fecha_actual.strftime('%d/%b/%Y')}")
+            print(f"📊 Diferencia: {diferencia_dias} días")
+            
+            # Si han pasado más de 2 días, eliminar
+            if diferencia_dias > 2:
+                print(f"🗑️  Han pasado {diferencia_dias} días (>2), eliminando JSON...")
+                
+                # Obtener información del usuario antes de eliminar
+                usuario = json_data.get("usuario", {}).get("nombre_completo", "desconocido")
+                print(f"📋 JSON a eliminar: Usuario={usuario}, Fecha={fecha_generacion_str}")
+                
+                # Eliminar el archivo
+                remove(ruta_json)
+                
+                # Verificar que se eliminó
+                if not os_path.exists(ruta_json):
+                    print(f"✅ JSON eliminado exitosamente: {os_path.basename(ruta_json)}")
+                    
+                    # Intentar eliminar también el directorio si está vacío
+                    try:
+                        directorio = os_path.dirname(ruta_json)
+                        if os_path.exists(directorio) and not listdir(directorio):
+                            rmdir(directorio) 
+                            print(f"🗂️  Directorio vacío eliminado: {os_path.basename(directorio)}")
+                    except Exception as dir_error:
+                        print(f"ℹ️  No se pudo eliminar directorio: {dir_error}")
+                    
+                    self.json_fue_eliminado = True  # Marcar que eliminamos el JSON
+                    return True
+                else:
+                    print(f"❌ No se pudo eliminar el JSON: {ruta_json}")
+                    return False
+            else:
+                print(f"✅ JSON conservado (diferencia: {diferencia_dias} días ≤ 2)")
+                self.json_fue_eliminado = False
+                return False
+                
+        except Exception as e:
+            print(f"💥 Error verificando JSON antiguo: {e}")
+            import traceback
+            traceback.print_exc()
+            self.json_fue_eliminado = False
+            return False
 
     def extraer_y_procesar_calendario(self):
         """
         Ejecuta el proceso completo de extracción, comparación y guardado.
+        Verifica y elimina JSON antiguo antes de proceder.
         """
         try:
-            # 1. EXTRAER datos del portal
+            print("🔄 Iniciando proceso de extracción y procesamiento...")
+            
+            # Resetear bandera al inicio de cada ejecución
+            self.json_fue_eliminado = False
+            
+            # 1. Verificar si hay JSON antiguo que eliminar
+            # Primero necesitamos obtener el nombre del usuario para saber la ruta
+            # Creamos una instancia temporal para obtener la ruta
+            ruta_json_usuario = None
+            if self.login_instance:
+                try:
+                    extractor_temp = ExtractorCalendario(self.login_instance)
+                    
+                    # Intentar extraer nombre de usuario si aún no está disponible
+                    if not hasattr(extractor_temp, 'nombre_usuario') or not extractor_temp.nombre_usuario:
+                        # Intentar extraer desde la página
+                        extractor_temp.extraer_nombre_usuario()
+                    
+                    # Obtener ruta del JSON del usuario
+                    ruta_json_usuario = extractor_temp.obtener_ruta_json_usuario()
+                    
+                    if ruta_json_usuario and os_path.exists(ruta_json_usuario):
+                        print("🔍 Verificando antigüedad del JSON existente...")
+                        json_eliminado = self._verificar_y_eliminar_json_antiguo(ruta_json_usuario)
+                        
+                        if json_eliminado:
+                            print("🔄 JSON eliminado. Esta será una nueva extracción sin comparación.")
+                        else:
+                            print("✅ JSON conservado. Se comparará con la versión anterior.")
+                    else:
+                        print("ℹ️  No existe JSON previo para este usuario")
+                        self.json_fue_eliminado = False
+                except Exception as e:
+                    print(f"⚠️  Error verificando JSON antiguo: {e}")
+                    self.json_fue_eliminado = False
+            
+            # 2. EXTRAER datos del portal
             print("🔄 Extrayendo datos del calendario...")
             extractor = ExtractorCalendario(self.login_instance)
             
-            # 2. EJECUTAR proceso simplificado
+            # 3. EJECUTAR proceso simplificado - Pasar información si el JSON fue eliminado
+            # Modificamos ExtractorCalendario para aceptar este parámetro
+            # Si no podemos modificar ExtractorCalendario, usaremos un workaround
             exito = extractor.ejecutar_proceso_simplificado()
             
             if exito:  # Devuelve True/False
@@ -38,6 +164,14 @@ class Ejecuciones(BasePlaywright):
                     with open(ruta_json, 'r', encoding='utf-8') as f:
                         json_data = load(f)
                     
+                    # Mostrar fecha de generación
+                    fecha_generacion = json_data.get("periodo", {}).get("fecha_generacion", "desconocida")
+                    print(f"📅 Fecha de generación del JSON: {fecha_generacion}")
+                    
+                    # Mostrar mensaje especial si el JSON fue eliminado antes
+                    if self.json_fue_eliminado:
+                        print("📝 NOTA: Se creó nuevo JSON (el anterior fue eliminado por antigüedad)")
+                    
                     if json_data.get("resumen_cambios", {}).get("se_detectaron_cambios", False):
                         print(f"🔄 Cambios detectados: {json_data['resumen_cambios']['total_cambios']} días modificados")
                         print(f"📅 Días con cambios: {json_data['resumen_cambios']['dias_con_cambios']}")
@@ -47,7 +181,9 @@ class Ejecuciones(BasePlaywright):
                 return {
                     "exito": True,
                     "usuario": extractor.nombre_usuario,
-                    "ruta_json": ruta_json
+                    "ruta_json": ruta_json,
+                    "fecha_generacion": fecha_generacion if 'fecha_generacion' in locals() else None,
+                    "json_eliminado": self.json_fue_eliminado
                 }
             else:
                 print("❌ Error en el proceso")
@@ -113,12 +249,15 @@ class Ejecuciones(BasePlaywright):
                         print("🔄 Intentando extraer calendario sin click...")
                         resultado_extraccion = self.extraer_y_procesar_calendario()
                         
-                        if resultado_extraccion:
+                        if resultado_extraccion and resultado_extraccion.get("exito"):
                             print("✅ Extracción exitosa incluso sin click en botón")
-                            return True
+                            return resultado_extraccion
                         else:
                             print("❌ No se pudo extraer calendario")
-                            return False
+                            return {
+                                "exito": False,
+                                "error": "No se pudo extraer calendario"
+                            }
                 else:
                     intentos_login += 1
                     print(f"❌ Intento {intentos_login} fallido")
@@ -140,10 +279,10 @@ class Ejecuciones(BasePlaywright):
         # Resultado final
         if login_exitoso:
             print("\n✅ LOGIN EXITOSO pero sin acción del botón")
-            return True
+            return {"exito": True, "mensaje": "Login exitoso pero sin acción del botón"}
         else:
             print("\n💀 EJECUCIÓN FALLIDA: No se pudo hacer login")
-            return False
+            return {"exito": False, "error": "No se pudo hacer login"}
 
     def click_boton_principal(self):
         """
@@ -338,7 +477,7 @@ class Ejecuciones(BasePlaywright):
         print("🔁 Iniciando flujo completo de prueba...")
         
         steps = [
-            ("1. Login", self.ejecuta_login_y_boton)
+            ("1. Login y extracción", self.ejecuta_login_y_boton)
         ]
         
         resultados = {}
@@ -352,29 +491,42 @@ class Ejecuciones(BasePlaywright):
                 resultado = step_function()
                 resultados[step_name] = resultado
                 
-                if resultado:
+                if resultado and resultado.get("exito"):
                     print(f"✅ {step_name} - EXITOSO")
+                    if resultado.get("fecha_generacion"):
+                        print(f"   📅 JSON generado: {resultado['fecha_generacion']}")
+                    if resultado.get("json_eliminado"):
+                        print(f"   🗑️  JSON anterior eliminado por antigüedad")
                 else:
                     print(f"❌ {step_name} - FALLIDO")
                     
             except Exception as e:
                 print(f"💥 {step_name} - ERROR: {str(e)}")
-                resultados[step_name] = False
+                resultados[step_name] = {"exito": False, "error": str(e)}
             
             # Pausa entre pasos
-            if step_name != "4. Logout":
-                self.helper.human_like_delay(3, 5)
+            self.helper.human_like_delay(2, 3)
         
         # Resumen final
         print(f"\n{'='*50}")
         print("📊 RESUMEN DE EJECUCIÓN")
         print(f"{'='*50}")
         
-        exitosos = sum(1 for resultado in resultados.values() if resultado)
+        exitosos = sum(1 for resultado in resultados.values() 
+                      if isinstance(resultado, dict) and resultado.get("exito"))
         total = len(resultados)
         
         for paso, resultado in resultados.items():
-            estado = "✅ EXITOSO" if resultado else "❌ FALLIDO"
+            if isinstance(resultado, dict) and resultado.get("exito"):
+                estado = f"✅ EXITOSO (Usuario: {resultado.get('usuario', 'N/A')})"
+                if resultado.get("fecha_generacion"):
+                    estado += f" - Fecha: {resultado['fecha_generacion']}"
+                if resultado.get("json_eliminado"):
+                    estado += " - [JSON RECIÉN CREADO]"
+            else:
+                estado = "❌ FALLIDO"
+                if isinstance(resultado, dict) and resultado.get("error"):
+                    estado += f" - Error: {resultado['error']}"
             print(f"{paso}: {estado}")
         
         print(f"\n🎯 RESULTADO: {exitosos}/{total} pasos exitosos")
