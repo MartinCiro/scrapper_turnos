@@ -1,5 +1,4 @@
 from controller.Config import Config
-from controller.ocrSolved import CaptchaExtractor
 from controller.Correo import Correo
 from selenium.webdriver.common.by import By
 from time import sleep
