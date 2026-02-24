@@ -1,7 +1,7 @@
-import os
-from dotenv import load_dotenv
 from re import sub
+from dotenv import load_dotenv
 from os import path as pt, makedirs, getenv
+from controller.Log import Log
 
 class Config:
     """
@@ -11,6 +11,7 @@ class Config:
     def __init__(self) -> None:
         """Constructor de la clase"""
         load_dotenv()
+        self.log = Log()
         
         # 🔐 CREDENCIALES ECODIGITAL
         self.user_eco = self._get_env_variable("USER_ECO")

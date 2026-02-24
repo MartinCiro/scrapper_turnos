@@ -1,13 +1,15 @@
-from controller.Login import Login
-from controller.ExtractorCalendario import ExtractorCalendario
-from datetime import datetime
-from os import path as os_path, listdir, rmdir, remove
-from json import load, dump
 from time import sleep
 from random import uniform
+from json import load, dump
+from datetime import datetime
 from traceback import print_exc
+from os import path as os_path, listdir, rmdir, remove
 
-class Ejecuciones:
+from controller.Login import Login
+from controller.Config import Config
+from controller.ExtractorCalendario import ExtractorCalendario
+
+class Ejecuciones(Config):
     """
     Clase orquestadora para el flujo completo de login y extracción de turnos mediante HTTP.
     Versión HTTP - sin dependencia de Playwright ni interacción con UI
@@ -19,6 +21,7 @@ class Ejecuciones:
         self.extractor_instance = None
         self.json_fue_eliminado = False
         self.json_eliminado_por_mes = False  # Nueva bandera para tracking
+        super().__init__()
 
     def _verificar_y_eliminar_json_por_mes(self, ruta_json):
         """
