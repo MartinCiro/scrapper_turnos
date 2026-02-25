@@ -1,434 +1,388 @@
-from controller.BasePlaywright import BasePlaywright
-from numpy import array as ar, zeros, int32
-from datetime import datetime
-from os import path as os_path, makedirs, remove
 from glob import glob
 from json import dump, load
+from requests import Session
+from os import path as os_path, makedirs
+from datetime import datetime, timedelta
+from numpy import zeros, int32 as np_32, array as np_array
 
-class ExtractorCalendario(BasePlaywright):
+from controller.Config import Config
+
+class ExtractorCalendario(Config):
     """
-    Clase encargada de extraer datos del calendario de turnos de EcoDigital.
+    Clase encargada de extraer datos del calendario de turnos de EcoDigital usando API HTTP.
+    Versión HTTP - sin dependencia de Playwright
     """
     
-    def __init__(self, login_instance=None):
-        """Constructor que inicializa el navegador Playwright"""
+    def __init__(self, session: Session, user_email: str):
+        """Constructor que inicializa con sesión HTTP"""
         super().__init__()
-        self.login_instance = login_instance
         
-        # Selectores base para extracción de datos del calendario
-        self.selectores_base = {
-            # Días de la semana (Lun, Mar, Mié, Jue, Vie, Sáb, Dom)
-            "dias_semana": "//th[contains(@class, 'fc-day-header')]",
-            
-            # Números de día - plantilla con {fila} dinámico
-            "numeros_fila": "//div[contains(@class, 'fc-row')][{fila}]//td[contains(@class, 'fc-day-number')]",
+        self.session = session
+        self.user_email = user_email
+        self.nombre_usuario = self.user_eco.split('@')[0] if '@' in self.user_eco else self.user_eco
 
-            # Números de día SOLO del mes actual (sin fc-other-month)
-            "numeros_fila_mes_actual": "//div[contains(@class, 'fc-row')][{fila}]//td[contains(@class, 'fc-day-number') and not(contains(@class, 'fc-other-month'))]",
-            
-            # Turnos (verde #c1e6c5 o gris #d0d0d0) - plantilla con {fila} dinámico
-            "turnos_fila": "//div[contains(@class, 'fc-row')][{fila}]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#c1e6c5') or contains(@style, '#d0d0d0') or contains(@style, '#528457')]",
-            
-            # Loader de carga del calendario
-            "loader": "//div[@class='em-textLoader' and contains(@style, 'display: none')]",
-
-            # Nombre de usuario logeado
-            "nombre_usuario": "//span[@class='lblUsuarioLogeado']",
-            
-            # Break (morado #bcb9d8) - plantilla con {fila} dinámico
-            "break_fila": "//div[contains(@class, 'fc-row')][{fila}]//a[contains(@class, 'fc-day-grid-event')][contains(@style, '#bcb9d8')]"
-        }
-     
-    def extraer_dias_semana(self):
-        try:
-            page = self.login_instance.page if self.login_instance else self.page
-
-            selector = self.get_selector("dias_semana", self.selectores_base)
-            page.wait_for_selector(f"xpath={selector}", timeout=10000)
-            dias_elements = page.query_selector_all(f"xpath={selector}")
-            
-            dias_semana = []
-            for element in dias_elements:
-                texto = element.text_content().strip()
-                if texto:
-                    dias_semana.append(texto)
-            
-            if len(dias_semana) == 7:
-                return dias_semana
-            else:
-                raise ValueError(f"Se esperaban 7 días de la semana, se obtuvieron {len(dias_semana)}: {dias_semana}")
-                
-        except Exception as e:
-            print(f"⚠️ Error extrayendo días de la semana: {e}")
-            # No usar fallback peligroso
-            # En su lugar, intentar estrategia alternativa o fallar
-            # Para debugging, podrías devolver None y manejarlo arriba
-            raise
-    
-    def extraer_numeros_matriz(self):
-        """Extrae los números de día y evita duplicados (p. ej., día 1 repetido)."""
-        try:
-            page = self.login_instance.page if self.login_instance else self.page
-            
-            matriz_numeros = zeros((5, 7), dtype=int32)
-            dias_vistos = set()  # ← Para evitar duplicados
-            
-            # Extraer cada fila (1-5)
-            for fila_idx in range(5):
-                selector = self.get_selector("numeros_fila", self.selectores_base, fila_idx + 1)
-                elements = page.query_selector_all(f"xpath={selector}")
-                
-                # Procesar hasta 7 columnas
-                for col_idx, element in enumerate(elements[:7]):
-                    try:
-                        texto = element.text_content().strip()
-                        if texto:
-                            numero = ''.join(filter(str.isdigit, texto))
-                            if numero:
-                                dia_num = int(numero)
-                                # Solo asignar si aún no se ha visto este día
-                                if dia_num not in dias_vistos:
-                                    matriz_numeros[fila_idx, col_idx] = dia_num
-                                    dias_vistos.add(dia_num)
-                                # Si ya existe, dejar la celda en 0 (o ignorar)
-                    except Exception:
-                        continue
-            
-            return matriz_numeros
-            
-        except Exception as e:
-            print(f"⚠️ Error extrayendo números matriz: {e}")
-            return zeros((5, 7), dtype=int32)
-    
-    def extraer_turnos_matriz(self):
-        """Extrae los turnos principales (eventos principales)"""
-        try:
-            page = self.login_instance.page if self.login_instance else self.page
-            
-            eventos_principales = ar([
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""]
-            ], dtype=object)
-            
-            # Extraer cada fila (1-5)
-            for fila_idx in range(5):
-                selector = self.get_selector("turnos_fila", self.selectores_base, fila_idx + 1)
-                elements = page.query_selector_all(f"xpath={selector}")
-                
-                # Procesar hasta 7 columnas
-                for col_idx, element in enumerate(elements[:7]):
-                    try:
-                        texto = element.text_content().strip()
-                        if texto:
-                            eventos_principales[fila_idx, col_idx] = texto
-                    except:
-                        continue
-            
-            return eventos_principales
-            
-        except Exception as e:
-            print(f"⚠️ Error extrayendo turnos: {e}")
-            return ar([
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""]
-            ], dtype=object)
-    
-    def extraer_breaks_matriz(self):
-        """Extrae los breaks (eventos secundarios)"""
-        try:
-            page = self.login_instance.page if self.login_instance else self.page
-            
-            eventos_secundarios = ar([
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""]
-            ], dtype=object)
-            
-            # Extraer cada fila (1-5)
-            for fila_idx in range(5):
-                selector = self.get_selector("break_fila", self.selectores_base, fila_idx + 1)
-                elements = page.query_selector_all(f"xpath={selector}")
-                
-                # Procesar hasta 7 columnas
-                for col_idx, element in enumerate(elements[:7]):
-                    try:
-                        texto = element.text_content().strip()
-                        if texto:
-                            eventos_secundarios[fila_idx, col_idx] = texto
-                    except:
-                        continue
-            
-            return eventos_secundarios
-            
-        except Exception as e:
-            print(f"⚠️ Error extrayendo breaks: {e}")
-            return ar([
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""]
-            ], dtype=object)
-    
-    def extraer_turnos_y_breaks_juntos(self):
+    def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None):
         """
-        Extrae turnos y breaks usando posiciones X (bounding box) para mapear correctamente ambos.
+        Extrae los turnos directamente del API JSON
+        Formato de fechas: "26/1/2026" (día/mes/año)
         """
         try:
-            page = self.login_instance.page if self.login_instance else self.page
+            # Calcular fechas si no se proporcionan (mes actual + buffer)
+            if not fecha_inicio or not fecha_fin:
+                hoy = datetime.now()
+                # Inicio: último día del mes anterior
+                primer_dia_mes = hoy.replace(day=1)
+                fecha_inicio = (primer_dia_mes - timedelta(days=5)).strftime("%d/%m/%Y")
+                # Fin: primer día del mes siguiente + buffer
+                primer_dia_siguiente = (hoy.replace(day=28) + timedelta(days=4)).replace(day=1)
+                fecha_fin = (primer_dia_siguiente + timedelta(days=5)).strftime("%d/%m/%Y")
             
-            eventos_principales = ar([
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""]
-            ], dtype=object)
+            # Formatear fechas al formato que espera el API (sin ceros iniciales)
+            fecha_inicio_fmt = fecha_inicio.replace("/0", "/").lstrip("0")
+            fecha_fin_fmt = fecha_fin.replace("/0", "/").lstrip("0")
             
-            eventos_secundarios = ar([
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""],
-                ["", "", "", "", "", "", ""]
-            ], dtype=object)
+            self.log.comentario("INFO", f"📡 Consultando API de turnos: {fecha_inicio_fmt} a {fecha_fin_fmt}")
             
-            for fila_idx in range(5):
-                fila_num = fila_idx + 1
-                
-                # 1. Identificar columnas del mes actual y sus posiciones X
-                selector_todos = self.get_selector("numeros_fila", self.selectores_base, fila_num)
-                todas_celdas = page.query_selector_all(f"xpath={selector_todos}")
-                
-                columnas_info = []  # [(col_idx, x_center), ...]
-                for col_idx, celda in enumerate(todas_celdas[:7]):
-                    if 'fc-other-month' not in (celda.get_attribute('class') or ''):
-                        bbox = celda.bounding_box()
-                        if bbox:
-                            x_center = bbox['x'] + bbox['width'] / 2
-                            columnas_info.append((col_idx, x_center))
-                
-                # 2. EXTRAER TURNOS usando posición X
-                selector_turnos = self.get_selector("turnos_fila", self.selectores_base, fila_num)
-                elements_turnos = page.query_selector_all(f"xpath={selector_turnos}")
-                
-                for element in elements_turnos:
-                    try:
-                        bbox = element.bounding_box()
-                        if not bbox:
-                            continue
-                        
-                        turno_x_center = bbox['x'] + bbox['width'] / 2
-                        
-                        # Encontrar la columna más cercana
-                        mejor_col = None
-                        menor_distancia = float('inf')
-                        
-                        for col_idx, x_center in columnas_info:
-                            distancia = abs(turno_x_center - x_center)
-                            if distancia < menor_distancia:
-                                menor_distancia = distancia
-                                mejor_col = col_idx
-                        
-                        if mejor_col is not None:
-                            texto = element.text_content().strip()
-                            if texto:
-                                eventos_principales[fila_idx, mejor_col] = texto
-                    except Exception as e:
-                        continue
-                
-                # 3. EXTRAER BREAKS usando posición X
-                selector_breaks = self.get_selector("break_fila", self.selectores_base, fila_num)
-                elements_breaks = page.query_selector_all(f"xpath={selector_breaks}")
-                
-                for element in elements_breaks:
-                    try:
-                        bbox = element.bounding_box()
-                        if not bbox:
-                            continue
-                        
-                        break_x_center = bbox['x'] + bbox['width'] / 2
-                        
-                        # Encontrar la columna más cercana
-                        mejor_col = None
-                        menor_distancia = float('inf')
-                        
-                        for col_idx, x_center in columnas_info:
-                            distancia = abs(break_x_center - x_center)
-                            if distancia < menor_distancia:
-                                menor_distancia = distancia
-                                mejor_col = col_idx
-                        
-                        if mejor_col is not None:
-                            texto = element.text_content().strip()
-                            if texto:
-                                eventos_secundarios[fila_idx, mejor_col] = texto
-                    except Exception as e:
-                        continue
+            # Headers para el request
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'Accept': 'application/json, text/plain, */*',
+                'Origin': f'{self.eco_base_url}',
+                'Referer': f'{self.eco_login_url}Master',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin'
+            }
             
-            return eventos_principales, eventos_secundarios
+            # Payload
+            payload = {
+                "fechaInicio": fecha_inicio_fmt,
+                "fechaFin": fecha_fin_fmt
+            }
+            
+            # Hacer request al API
+            response = self.session.post(
+                self.eco_api_turnos,
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            
+            if response.status_code != 200:
+                self.log.error(f"Error en API: {response.status_code}", "GET turnos")
+                return None
+            
+            # Parsear respuesta JSON
+            data = response.json()
+            
+            self.log.comentario("Turnos extraídos exitosamente", "Data turnos")
+            return data
             
         except Exception as e:
-            print(f"⚠️ Error extrayendo turnos y breaks juntos: {e}")
+            self.log.error(f"Error extrayendo turnos del API: {str(e)}", "Extractor turnos")
             import traceback
             traceback.print_exc()
-            empty_matrix = ar([
+            return None
+
+    def procesar_datos_api(self, data_api):
+        """
+        Procesa la respuesta del API y genera estructuras compatibles con el código anterior
+        """
+        try:
+            if not data_api or 'turnos' not in data_api:
+                self.log.error("Datos del API inválidos (no contiene 'turnos')", "Sin data turnos")
+                if data_api:
+                    self.log.comentario("INFO", f"Estructura recibida: {list(data_api.keys())}")
+                return None
+            
+            # El API devuelve directamente el objeto JSON con 'turnos' y 'eventos'
+            turnos_data = data_api
+            
+            # Extraer información del usuario del primer turno
+            if 'turnos' in turnos_data and len(turnos_data['turnos']) > 0:
+                primer_turno = turnos_data['turnos'][0]
+                if 'Asesor' in primer_turno and 'NombreCompleto' in primer_turno['Asesor']:
+                    nombre_usuario = primer_turno['Asesor']['NombreCompleto']
+                    if nombre_usuario:
+                        self.log.comentario(f"👤 Usuario identificado: {nombre_usuario}", "Usuario identificado")
+            
+            # Procesar turnos por día
+            turnos_por_dia = {}
+            
+            for turno in turnos_data.get('turnos', []):
+                # Extraer fecha del turno (formato: "2026-01-27 02:00")
+                fecha_hora_entrada = turno.get('FechaHoraEntradaString', '')
+                if not fecha_hora_entrada or ' ' not in fecha_hora_entrada:
+                    continue
+                
+                fecha_str = fecha_hora_entrada.split(' ')[0]
+                
+                # Parsear fecha
+                try:
+                    fecha = datetime.strptime(fecha_str, "%Y-%m-%d")
+                    dia_num = fecha.day
+                    mes_num = fecha.month
+                    año_num = fecha.year
+                    
+                    # Obtener día de la semana
+                    dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+                    dia_semana = dias_semana[fecha.weekday()]
+                    
+                    # Determinar si es día libre (Novedad con código 'LIBRE')
+                    es_dia_libre = False
+                    novedad = turno.get('Novedad')
+                    if novedad and novedad.get('Codigo') == 'LIBRE':
+                        es_dia_libre = True
+                    
+                    # Extraer horario del turno (usar strings directamente)
+                    horario_entrada = fecha_hora_entrada.split(' ')[1] if ' ' in fecha_hora_entrada else ''
+                    fecha_hora_salida = turno.get('FechaHoraSalidaString', '')
+                    horario_salida = fecha_hora_salida.split(' ')[1] if ' ' in fecha_hora_salida else ''
+                    
+                    horario = f"{horario_entrada} - {horario_salida}" if horario_entrada and horario_salida else ''
+                    
+                    # Determinar tipo de turno
+                    tipo = 'Día Libre' if es_dia_libre else 'Dimensionado'
+                    
+                    # EXTRAER BREAKS CORRECTAMENTE (formato /Date(xxx)/)
+                    break_info = None
+                    hora_descanso_entrada_str = turno.get('HoraDescanso1Entrada')
+                    hora_descanso_salida_str = turno.get('HoraDescanso1Salida')
+                    
+                    if hora_descanso_entrada_str and hora_descanso_salida_str:
+                        # Extraer número del formato /Date(1769491200000)/
+                        import re
+                        match_entrada = re.search(r'/Date\((\d+)\)/', str(hora_descanso_entrada_str))
+                        match_salida = re.search(r'/Date\((\d+)\)/', str(hora_descanso_salida_str))
+                        
+                        if match_entrada and match_salida:
+                            try:
+                                # Convertir milisegundos a segundos
+                                entrada_ms = int(match_entrada.group(1))
+                                salida_ms = int(match_salida.group(1))
+                                
+                                entrada_break = datetime.fromtimestamp(entrada_ms / 1000)
+                                salida_break = datetime.fromtimestamp(salida_ms / 1000)
+                                
+                                horario_break = f"{entrada_break.strftime('%H:%M')} - {salida_break.strftime('%H:%M')}"
+                                duracion_minutos = int((salida_break - entrada_break).total_seconds() / 60)
+                                
+                                break_info = {
+                                    'horario': horario_break,
+                                    'duracion_minutos': duracion_minutos
+                                }
+                            except (ValueError, TypeError) as e:
+                                self.log.comentario("WARNING", f"⚠️ Error convirtiendo timestamps de break: {e}")
+                    
+                    # Guardar información del día
+                    turnos_por_dia[dia_num] = {
+                        'fecha': fecha_str,
+                        'dia': dia_num,
+                        'mes': mes_num,
+                        'año': año_num,
+                        'dia_semana': dia_semana,
+                        'turno': {
+                            'horario': horario,
+                            'tipo': tipo,
+                            'duracion_horas': self._calcular_duracion_horas(horario)
+                        },
+                        'break': break_info,
+                        'es_dia_libre': es_dia_libre
+                    }
+                    
+                except Exception as e:
+                    self.log.comentario("WARNING", f"⚠️ Error procesando turno {fecha_str}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    continue
+            
+            self.log.comentario(f"Procesados {len(turnos_por_dia)} días con turnos", "Data turnos")
+            return turnos_por_dia
+            
+        except Exception as e:
+            self.log.error(f"Error procesando datos del API: {str(e)}", "Procesador de datos extraidos")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _calcular_duracion_horas(self, horario: str) -> float:
+        """Calcula la duración en horas a partir del string de horario"""
+        try:
+            if not horario:
+                return 0
+            
+            # Ejemplo: "08:00 - 14:00"
+            partes = horario.split(' - ')
+            if len(partes) != 2:
+                return 6  # Valor por defecto
+            
+            inicio = datetime.strptime(partes[0].strip(), "%H:%M")
+            fin = datetime.strptime(partes[1].strip(), "%H:%M")
+            
+            duracion = (fin - inicio).total_seconds() / 3600
+            return round(duracion, 1)
+            
+        except Exception:
+            return 6  # Valor por defecto
+
+    def generar_estructura_compatible(self, turnos_por_dia):
+        """
+        Genera estructuras de datos compatibles con el código anterior (matrices 5x7)
+        """
+        try:
+            from datetime import datetime
+            
+            # Obtener mes y año actual
+            hoy = datetime.now()
+            mes_actual = hoy.month
+            año_actual = hoy.year
+            
+            # Crear matrices vacías
+            numeros_matriz = zeros((5, 7), dtype=np_32)
+            eventos_principales = np_array([
                 ["", "", "", "", "", "", ""],
                 ["", "", "", "", "", "", ""],
                 ["", "", "", "", "", "", ""],
                 ["", "", "", "", "", "", ""],
                 ["", "", "", "", "", "", ""]
             ], dtype=object)
-            return empty_matrix, empty_matrix
-    
-    def extraer_matriz_festivos(self):
-        """Extrae días festivos"""
-        return zeros((5, 7), dtype=bool)
-    
-    def extraer_todo(self):
-        """Extrae todos los datos del calendario de forma eficiente"""
-
-        # Extraer nombre del usuario
-        nombre_usuario = self.extraer_nombre_usuario()
-        
-        # Extraer días de la semana
-        dias_semana = self.extraer_dias_semana()
-        
-        # Extraer números de los días
-        numeros_matriz = self.extraer_numeros_matriz()
-        
-        # Extraer turnos y breaks juntos (más eficiente)
-        eventos_principales, eventos_secundarios = self.extraer_turnos_y_breaks_juntos()
-        
-        # Festivos (por ahora vacío)
-        es_festivo = self.extraer_matriz_festivos()
-        
-        # Fecha actual
-        hoy_numero = datetime.now().day
-        hoy_fecha = datetime.now().strftime("%Y-%m-%d")
-        
-        return {
-            'nombre_usuario': nombre_usuario,
-            'dias_semana': dias_semana,
-            'numeros_matriz': numeros_matriz,
-            'eventos_principales': eventos_principales,
-            'eventos_secundarios': eventos_secundarios,
-            'es_festivo': es_festivo,
-            'hoy_numero': hoy_numero,
-            'hoy_fecha': hoy_fecha
-        }
-    
-    def extraer_nombre_usuario(self):
-        """Extrae el nombre del usuario logeado"""
-        try:
-            page = self.login_instance.page if self.login_instance else self.page
             
-            selector = self.get_selector("nombre_usuario", self.selectores_base)
+            eventos_secundarios = np_array([
+                ["", "", "", "", "", "", ""],
+                ["", "", "", "", "", "", ""],
+                ["", "", "", "", "", "", ""],
+                ["", "", "", "", "", "", ""],
+                ["", "", "", "", "", "", ""]
+            ], dtype=object)
             
-            # Esperar un momento para que cargue
-            page.wait_for_timeout(2000)
+            # Mapear días al calendario
+            # Primero, obtener el primer día del mes y cuántos días tiene
+            import calendar
+            primer_dia_mes, dias_en_mes = calendar.monthrange(año_actual, mes_actual)
             
-            # Buscar elemento del nombre de usuario
-            elemento_usuario = page.query_selector(f"xpath={selector}")
+            # Ajustar: lunes = 0 en calendar, pero necesitamos lunes = 0 para nuestra matriz
+            # calendar.monthrange devuelve lunes = 0, domingo = 6 (correcto)
             
-            if elemento_usuario:
-                nombre = elemento_usuario.text_content().strip()
-                if nombre:
-                    print(f"👤 Usuario identificado: {nombre}")
-                    self.nombre_usuario=nombre
-                    return nombre
+            # Calcular en qué fila y columna va cada día
+            for dia_num in range(1, dias_en_mes + 1):
+                # Calcular día de la semana (0=lunes, 6=domingo)
+                fecha_dia = datetime(año_actual, mes_actual, dia_num)
+                dia_semana = fecha_dia.weekday()  # 0=lunes, 6=domingo
+                
+                # Calcular fila: (dia_num + offset_del_primer_dia - 1) // 7
+                fila = (dia_num + primer_dia_mes - 1) // 7
+                columna = dia_semana
+                
+                # Verificar que la fila esté en rango (0-4)
+                if fila < 5:
+                    # Guardar número del día
+                    numeros_matriz[fila, columna] = dia_num
+                    
+                    # Si hay turno para este día, guardarlo
+                    if dia_num in turnos_por_dia:
+                        turno_info = turnos_por_dia[dia_num]
+                        
+                        if turno_info['es_dia_libre']:
+                            eventos_principales[fila, columna] = "Día Libre"
+                        elif turno_info['turno']['horario']:
+                            # Formato: "08:00 - 14:00 Dimensionado"
+                            horario = turno_info['turno']['horario']
+                            tipo = turno_info['turno']['tipo']
+                            eventos_principales[fila, columna] = f"{horario} {tipo}"
+                        
+                        # Guardar break si existe
+                        if turno_info['break'] and turno_info['break']['horario']:
+                            eventos_secundarios[fila, columna] = f"{turno_info['break']['horario']} Break"
             
-            print("⚠️ No se pudo extraer el nombre de usuario")
-            return None
+            # Obtener nombres de días de la semana
+            dias_semana = ["Lun.", "Mar.", "Mié.", "Jue.", "Vie.", "Sáb.", "Dom."]
+            
+            return {
+                'nombre_usuario': self.nombre_usuario,
+                'dias_semana': dias_semana,
+                'numeros_matriz': numeros_matriz,
+                'eventos_principales': eventos_principales,
+                'eventos_secundarios': eventos_secundarios,
+                'es_festivo': zeros((5, 7), dtype=bool),
+                'hoy_numero': hoy.day,
+                'hoy_fecha': hoy.strftime("%Y-%m-%d")
+            }
             
         except Exception as e:
-            print(f"⚠️ Error extrayendo nombre de usuario: {e}")
+            self.log.error(f"Error generando estructura compatible: {str(e)}", "estructra incompatible")
+            import traceback
+            traceback.print_exc()
             return None
-    
+
+    def extraer_todo(self):
+        """Extrae todos los datos del calendario usando el API"""
+        try:
+            self.log.comentario("INFO", "🔄 Iniciando extracción de turnos desde API...")
+            
+            # 1. Extraer datos del API
+            data_api = self.extraer_turnos_api()
+            if not data_api:
+                return None
+            
+            # 2. Procesar datos
+            turnos_por_dia = self.procesar_datos_api(data_api)
+            if not turnos_por_dia:
+                return None
+            
+            # 3. Generar estructura compatible
+            datos_compatibles = self.generar_estructura_compatible(turnos_por_dia)
+
+            self.log.comentario("SUCCESS", "Extracción completada exitosamente")
+            return datos_compatibles
+            
+        except Exception as e:
+            self.log.error(f"Error en extracción completa: {str(e)}", "extraccion de datos completo calendario")
+            import traceback
+            traceback.print_exc()
+            return None
+
     def mostrar_datos_extraidos(self, datos):
-        """Muestra los datos extraídos de forma organizada por partes"""
+        """Muestra los datos extraídos de forma organizada"""
         if not datos:
-            print("❌ No hay datos para mostrar")
+            print("No hay datos para mostrar")
             return
         
-        numeros = datos['numeros_matriz']
-        for i in range(5):
-            fila_str = "  "
-            for j in range(7):
-                dia_num = numeros[i, j]
-                if dia_num == datos['hoy_numero']:
-                    fila_str += f"[{dia_num:2d}] "
-                else:
-                    fila_str += f" {dia_num:2d}  "
+        print("\n" + "="*60)
+        print("📊 DATOS EXTRAÍDOS DEL CALENDARIO")
+        print("="*60)
         
-        turnos = datos['eventos_principales']
-        for i in range(5):
-            fila_str = "  "
-            for j in range(7):
-                turno = turnos[i, j]
-                if turno:
-                    # Acortar texto si es muy largo
-                    if len(turno) > 12:
-                        fila_str += f"{turno[:10]}... "
-                    else:
-                        fila_str += f"{turno:12s} "
-                else:
-                    fila_str += "   -        "
-        
-        breaks = datos['eventos_secundarios']
-        for i in range(5):
-            fila_str = "  "
-            for j in range(7):
-                break_info = breaks[i, j]
-                if break_info:
-                    # Acortar texto si es muy largo
-                    if len(break_info) > 12:
-                        fila_str += f"{break_info[:10]}... "
-                    else:
-                        fila_str += f"{break_info:12s} "
-                else:
-                    fila_str += "   -        "
-        
-        # 5. VISTA DETALLADA POR DÍA (solo días con datos)
-        print("\n🔍 VISTA DETALLADA POR DÍA:")
-        print("  " + "-" * 50)
-
         if datos.get('nombre_usuario'):
             print(f"👤 Usuario: {datos['nombre_usuario']}")
         
-        dias_con_datos = False
-        for i in range(5):  # Filas
-            for j in range(7):  # Columnas
+        print(f"📅 Fecha de extracción: {datos['hoy_fecha']}")
+        print(f"🔢 Día actual: {datos['hoy_numero']}")
+        
+        # Mostrar días con turnos
+        print("\n📋 TURNOS POR DÍA:")
+        print("-" * 60)
+        
+        numeros = datos['numeros_matriz']
+        turnos = datos['eventos_principales']
+        breaks = datos['eventos_secundarios']
+        
+        for i in range(5):
+            for j in range(7):
                 dia_num = numeros[i, j]
                 if dia_num > 0:
                     turno = turnos[i, j]
                     break_info = breaks[i, j]
                     
                     if turno or break_info:
-                        dias_con_datos = True
-                        # Nombre del día
-                        nombre_dia = datos['dias_semana'][j] if j < len(datos['dias_semana']) else f"Día {j+1}"
+                        dia_semana = datos['dias_semana'][j]
+                        es_hoy = " ⭐" if dia_num == datos['hoy_numero'] else ""
                         
-                        # Marcar si es hoy
-                        es_hoy = " (HOY)" if dia_num == datos['hoy_numero'] else ""
-                        
-                        print(f"  📅 {nombre_dia} {dia_num}{es_hoy}:")
+                        print(f"\n  📅 {dia_semana} {dia_num}{es_hoy}:")
                         if turno:
-                            print(f"     Turno: {turno}")
+                            print(f"     🕐 Turno: {turno}")
                         if break_info:
-                            print(f"     Break: {break_info}")
-                        print("  " + "-" * 50)
+                            print(f"     ☕ Break: {break_info}")
         
-        if not dias_con_datos:
-            print("  No hay datos en ningún día del calendario")
+        print("\n" + "="*60)
 
     def obtener_ruta_json_usuario(self):
         """
@@ -436,10 +390,11 @@ class ExtractorCalendario(BasePlaywright):
         """
         try:
             if not self.nombre_usuario:
-                return None
+                # Usar email como fallback
+                self.nombre_usuario = self.user_email.split('@')[0] if '@' in self.user_email else self.user_email
             
             # Limpiar nombre para usar como directorio
-            nombre_limpio = "".join(c for c in self.nombre_usuario if c.isalnum() or c in (' ', '_')).rstrip()
+            nombre_limpio = "".join(c for c in self.nombre_usuario if c.isalnum() or c in (' ', '_')).rstrip() if self.nombre_usuario else self.user_email
             nombre_directorio = nombre_limpio.replace(' ', '_').upper()
             
             # Ruta: ./data/usuarios/{NOMBRE_USUARIO}/
@@ -458,7 +413,7 @@ class ExtractorCalendario(BasePlaywright):
         except Exception as e:
             print(f"⚠️ Error obteniendo ruta JSON usuario: {e}")
             return None
-    
+
     def cargar_json_existente(self):
         """
         Carga el JSON existente del usuario (si existe).
@@ -473,49 +428,129 @@ class ExtractorCalendario(BasePlaywright):
         except Exception as e:
             print(f"⚠️ Error cargando JSON existente: {e}")
             return None
-    
+
     def comparar_y_actualizar(self, datos_extractos):
         """
         Compara datos extraídos con JSON existente y actualiza con cambios.
-        Esta es la NUEVA lógica: un solo archivo JSON por usuario.
+        VERIFICACIÓN ROBUSTA: Confirma existencia física del archivo ANTES de comparar.
         """
         try:
+            from os import path as os_path
+            from datetime import datetime
+            
             # 1. Generar JSON con datos nuevos
             calendario_nuevo = self.generar_json_calendario(datos_extractos)
             if not calendario_nuevo:
-                print("❌ No se pudo generar JSON con datos nuevos")
+                print("No se pudo generar JSON con datos nuevos")
                 return None
             
-            # 2. Cargar JSON existente (si hay)
+            # 2. OBTENER RUTA Y VERIFICAR EXISTENCIA FÍSICA EN DISCO (¡CRÍTICO!)
+            ruta_json = self.obtener_ruta_json_usuario()
+            json_existe_en_disco = ruta_json and os_path.exists(ruta_json)
+            
+            print(f"\n🔍 VERIFICACIÓN FÍSICA DEL JSON:")
+            print(f"   Ruta: {ruta_json}")
+            print(f"   ¿Existe en disco? {'SÍ' if json_existe_en_disco else 'NO'}")
+            
+            # 3. EXTRAER MES DEL NUEVO CALENDARIO
+            mes_nuevo = calendario_nuevo.get("periodo", {}).get("mes", "")
+            año_nuevo = datetime.now().year
+            
+            # 4. SI NO EXISTE EN DISCO → PRIMERA EXTRACCIÓN (SIN COMPARACIÓN)
+            if not json_existe_en_disco:
+                print(f"📝 PRIMERA EXTRACCIÓN del mes ({mes_nuevo}) - guardando SIN historial de cambios")
+                return self._guardar_calendario_limpio(calendario_nuevo, es_primera_extraccion=True)
+            
+            # 5. SI EXISTE EN DISCO → CARGAR Y VERIFICAR MES
             calendario_existente = self.cargar_json_existente()
             
-            # 3. Si no existe archivo previo, guardar directamente
             if not calendario_existente:
-                print("📝 Primera ejecución para este usuario")
-                return self._guardar_json_actualizado(calendario_nuevo)
+                print(f"⚠️  JSON existe en disco pero no se pudo cargar - tratando como primera extracción")
+                return self._guardar_calendario_limpio(calendario_nuevo, es_primera_extraccion=True)
             
-            # 4. Comparar y marcar cambios
-            calendario_actualizado = self._detectar_cambios(
-                calendario_existente, 
-                calendario_nuevo
-            )
+            # 6. EXTRAER MES DEL JSON EXISTENTE
+            mes_existente = calendario_existente.get("periodo", {}).get("mes", "")
             
-            # 5. Guardar versión actualizada
+            print(f"   Mes nuevo: {mes_nuevo}")
+            print(f"   Mes existente: {mes_existente}")
+            
+            # 7. SI LOS MESES SON DIFERENTES → NO COMPARAR (eliminar implícitamente)
+            if mes_nuevo != mes_existente:
+                print(f"🔄 MES DIFERENTE detectado ({mes_existente} → {mes_nuevo}) - guardando SIN comparación")
+                return self._guardar_calendario_limpio(calendario_nuevo, es_primera_extraccion=True)
+            
+            # 8. SI ES EL MISMO MES → COMPARAR NORMALMENTE
+            print(f"🔄 Mismo mes ({mes_nuevo}) - comparando con versión anterior...")
+            calendario_actualizado = self._detectar_cambios(calendario_existente, calendario_nuevo)
             return self._guardar_json_actualizado(calendario_actualizado)
             
         except Exception as e:
-            print(f"❌ Error comparando y actualizando: {e}")
+            print(f"Error en comparar_y_actualizar: {e}")
             import traceback
             traceback.print_exc()
             return None
-    
+
+    def _guardar_calendario_limpio(self, calendario, es_primera_extraccion=True):
+        """
+        Guarda el calendario SIN historial de cambios (para primera extracción del mes).
+        """
+        try:
+            # Limpiar cualquier rastro de cambios en TODOS los días
+            for dia in calendario.get("calendario", []):
+                dia["cambios"] = {
+                    "ha_cambiado": False,
+                    "detalle_cambios": None,
+                    "campos_modificados": [],
+                    "ultima_modificacion": None,
+                    "historial": []
+                }
+            
+            # Limpiar metadata de cambios
+            calendario["metadata"]["tiene_cambios_versiones_anteriores"] = False
+            calendario["metadata"]["ultima_comparacion"] = None
+            
+            # Resumen de cambios limpio
+            calendario["resumen_cambios"] = {
+                "ultima_ejecucion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "total_cambios": 0,
+                "dias_con_cambios": [],
+                "dias_eliminados": [],
+                "se_detectaron_cambios": False
+            }
+            
+            # Guardar SIN crear backup (es primera extracción)
+            ruta_json = self.obtener_ruta_json_usuario()
+            if not ruta_json:
+                print("No se pudo obtener ruta para guardar JSON")
+                return False
+            
+            # Eliminar backup previo si existe (evitar acumulación)
+            if os_path.exists(ruta_json):
+                try:
+                    from os import remove
+                    remove(ruta_json)
+                    print(f"🗑️  JSON anterior eliminado antes de guardar nuevo")
+                except Exception as e:
+                    print(f"⚠️  No se pudo eliminar JSON anterior: {e}")
+            
+            # Guardar nuevo JSON
+            with open(ruta_json, 'w', encoding='utf-8') as f:
+                dump(calendario, f, ensure_ascii=False, indent=2)
+            
+            if es_primera_extraccion:
+                print(f"Calendario GUARDADO (primera extracción del mes): {ruta_json}")
+            else:
+                print(f"Calendario actualizado SIN cambios: {ruta_json}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error guardando calendario limpio: {e}")
+            return False
+
     def _detectar_cambios(self, calendario_antiguo, calendario_nuevo):
         """
         Detecta cambios entre dos versiones del calendario y los marca.
-        Correcciones clave:
-        1. Detección precisa de breaks usando horario (no existencia de objeto)
-        2. Manejo de días eliminados
-        3. Comparación de duración de breaks
         """
         try:
             # Crear copia del nuevo calendario para modificarlo
@@ -664,29 +699,30 @@ class ExtractorCalendario(BasePlaywright):
                 if dias_eliminados:
                     print(f"🗑️  Detectados {len(dias_eliminados)} días eliminados: {dias_eliminados}")
             else:
-                print("✅ Sin cambios detectados respecto a la versión anterior")
+                print("Sin cambios detectados respecto a la versión anterior")
             
             return calendario_actualizado
             
         except Exception as e:
-            print(f"❌ Error grave detectando cambios: {e}")
+            print(f"Error grave detectando cambios: {e}")
             import traceback
             traceback.print_exc()
             # En caso de error, mantener el nuevo calendario sin cambios
             return calendario_nuevo
-        
-    def _guardar_json_actualizado(self, calendario):
+
+    def _guardar_json_actualizado(self, calendario, es_primera_extraccion=False):
         """
-        Guarda el JSON actualizado (sobrescribe el anterior).
+        Guarda el JSON actualizado.
+        es_primera_extraccion: True si es la primera extracción del mes (evita mensajes de "cambios")
         """
         try:
             ruta_json = self.obtener_ruta_json_usuario()
             if not ruta_json:
-                print("❌ No se pudo obtener ruta para guardar JSON")
+                print("No se pudo obtener ruta para guardar JSON")
                 return False
             
-            # Crear backup del archivo anterior (si existe)
-            if os_path.exists(ruta_json):
+            # Crear backup SOLO si NO es primera extracción
+            if os_path.exists(ruta_json) and not es_primera_extraccion:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 ruta_backup = ruta_json.replace(".json", f"_backup_{timestamp}.json")
                 from shutil import copy2
@@ -697,17 +733,22 @@ class ExtractorCalendario(BasePlaywright):
             with open(ruta_json, 'w', encoding='utf-8') as f:
                 dump(calendario, f, ensure_ascii=False, indent=2)
             
-            print(f"✅ Calendario actualizado guardado: {ruta_json}")
+            # Mensaje apropiado según contexto
+            if es_primera_extraccion:
+                print(f"Calendario GUARDADO (primera extracción del mes): {ruta_json}")
+            else:
+                print(f"Calendario actualizado guardado: {ruta_json}")
             
-            # Limpiar backups antiguos (mantener solo los 2 más recientes)
-            self._limpiar_backups_viejos(ruta_json)
+            # Limpiar backups solo si no es primera extracción
+            if not es_primera_extraccion:
+                self._limpiar_backups_viejos(ruta_json)
             
             return True
             
         except Exception as e:
-            print(f"❌ Error guardando JSON actualizado: {e}")
+            print(f"Error guardando JSON actualizado: {e}")
             return False
-    
+
     def _limpiar_backups_viejos(self, ruta_json_principal):
         """
         Limpia backups viejos, manteniendo solo los 2 más recientes.
@@ -726,59 +767,15 @@ class ExtractorCalendario(BasePlaywright):
             # Mantener solo 1 backup más recientes
             for backup in backups[1:]:
                 try:
-                    remove(backup)
+                    import os
+                    os.remove(backup)
                     print(f"🗑️  Eliminado backup antiguo: {os_path.basename(backup)}")
                 except Exception as e:
                     print(f"⚠️  Error eliminando backup {backup}: {e}")
                     
         except Exception as e:
             print(f"⚠️  Error limpiando backups: {e}")
-    
-    def ejecutar_proceso_simplificado(self):
-        """
-        Ejecuta el proceso simplificado: extraer, comparar y actualizar un solo archivo.
-        """
-        try:
-            print("🔄 Extrayendo datos del calendario...")
-            
-            # 1. Extraer datos
-            datos = self.extraer_todo()
-            
-            # 2. Mostrar datos extraídos
-            # self.mostrar_datos_extraidos(datos)
-            
-            # 3. Verificar si el JSON existe ANTES de comparar
-            ruta_json = self.obtener_ruta_json_usuario()
-            json_existe = ruta_json and os_path.exists(ruta_json)
-            
-            # 4. Comparar y actualizar archivo único
-            resultado = self.comparar_y_actualizar(datos)
-            
-            if resultado:                
-                # Mostrar resumen de cambios si existe
-                if ruta_json and os_path.exists(ruta_json):
-                    with open(ruta_json, 'r', encoding='utf-8') as f:
-                        json_data = load(f)
-                    
-                    # Si el JSON no existía antes, es una nueva extracción
-                    if not json_existe:
-                        print("📝 Nueva extracción (no existía JSON anterior)")
-                    elif json_data.get("resumen_cambios", {}).get("se_detectaron_cambios", False):
-                        print("🔄 Cambios detectados respecto a versión anterior")
-                    else:
-                        print("✅ Sin cambios en esta ejecución")
-                
-                return resultado
-            else:
-                print("❌ Error en el proceso")
-                return None
-                
-        except Exception as e:
-            print(f"💥 Error en ejecución: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-    
+
     def generar_json_calendario(self, datos_extractos):
         """
         Genera la estructura JSON básica del calendario.
@@ -788,8 +785,8 @@ class ExtractorCalendario(BasePlaywright):
             nombre_usuario = datos_extractos.get('nombre_usuario', 'Usuario Desconocido')
             
             usuario_info = {
-                "id": nombre_usuario.upper().replace(" ", "_"),
-                "nombre_completo": nombre_usuario
+                "id": nombre_usuario.upper().replace(" ", "_") if nombre_usuario else self.user_email.upper().replace("@", "_").replace(".", "_"),
+                "nombre_completo": nombre_usuario if nombre_usuario else self.user_email
             }
             
             # Información del período
@@ -890,5 +887,56 @@ class ExtractorCalendario(BasePlaywright):
             return calendario_json
             
         except Exception as e:
-            print(f"❌ Error generando JSON: {e}")
+            print(f"Error generando JSON: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def ejecutar_proceso_simplificado(self):
+        """
+        Ejecuta el proceso simplificado: extraer, comparar y actualizar un solo archivo.
+        """
+        try:
+            print("🔄 Extrayendo datos del calendario...")
+            
+            # 1. Extraer datos
+            datos = self.extraer_todo()
+            
+            if not datos:
+                print("Error extrayendo datos")
+                return None
+            
+            # 2. Mostrar datos extraídos
+            self.mostrar_datos_extraidos(datos)
+            
+            # 3. Verificar si el JSON existe ANTES de comparar
+            ruta_json = self.obtener_ruta_json_usuario()
+            json_existe = ruta_json and os_path.exists(ruta_json)
+            
+            # 4. Comparar y actualizar archivo único
+            resultado = self.comparar_y_actualizar(datos)
+            
+            if resultado:                
+                # Mostrar resumen de cambios si existe
+                if ruta_json and os_path.exists(ruta_json):
+                    with open(ruta_json, 'r', encoding='utf-8') as f:
+                        json_data = load(f)
+                    
+                    # Si el JSON no existía antes, es una nueva extracción
+                    if not json_existe:
+                        print("📝 Nueva extracción (no existía JSON anterior)")
+                    elif json_data.get("resumen_cambios", {}).get("se_detectaron_cambios", False):
+                        print("🔄 Cambios detectados respecto a versión anterior")
+                    else:
+                        print("Sin cambios en esta ejecución")
+                
+                return resultado
+            else:
+                print("Error en el proceso")
+                return None
+                
+        except Exception as e:
+            print(f"💥 Error en ejecución: {e}")
+            import traceback
+            traceback.print_exc()
             return None

@@ -1,240 +1,245 @@
+from requests import Session, exceptions
+from json import load, dump
+from datetime import datetime
 from controller.Config import Config
-from controller.utils.Helpers import Helpers
-from random import uniform
-from os import path
+from re import sub, search
 
 class Login(Config):
     """
-    Clase encargada de ejecutar el login en EcoDigital usando Playwright.
-    Versión específica para ecodigital.emergiacc.com
+    Clase corregida para manejo robusto de sesión y Cloudflare.
     """
 
     def __init__(self) -> None:
-        """Constructor de la clase. Hereda de Config e inicializa el navegador."""
         super().__init__()
-        self.helper = Helpers()
-        self.login_attempts = 0 
-        self.max_login_attempts = 3
+        self.session = Session()
         
-    def _log(self, message: str, type: str = "info"):
-        """Método de logging unificado"""
-        timestamp = self.helper.get_current_time()
-        log_message = f"[{timestamp}] {message}"
-        
-        if type == "error":
-            print(f"❌ {log_message}")
-        elif type == "warning":
-            print(f"⚠️  {log_message}")
-        elif type == "success":
-            print(f"✅ {log_message}")
-        else:
-            print(f"🔧 {log_message}")
+        # 🔑 HEADERS BASE (sin espacios extra al final)
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-User': '?1',
+            'Sec-Ch-Ua': '"Not(A:Brand";v="8", "Chromium";v="144", "Google Chrome";v="144"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            # ✅ SIN espacios al final
+            'Origin': self.eco_base_url.rstrip('/'),
+            'Referer': self.eco_login_url.rstrip('/'),
+        })
 
-    def is_logged_in(self) -> bool:
-        """
-        Verifica si ya estamos logueados en EcoDigital
-        """
-        try:
-            # Verificar el botón principal de calendario de turnos
-            if self.check_any_xpath_exists([self.selectors["logged_in_indicators"][0]], 3000):
-                return True
-            
-            # Verificar otros indicadores de sesión activa
-            elements_found = 0
-            required_elements = 2
-            
-            for xpath in self.selectors["logged_in_indicators"][1:5]:  # Primeros 5 indicadores
-                try:
-                    element = self.page.wait_for_selector(f"xpath={xpath}", timeout=2000, state="visible")
-                    if element:
-                        elements_found += 1
-                        if elements_found >= required_elements:
-                            self._log(f"✅ Sesión activa confirmada ({elements_found} indicadores)", "success")
-                            return True
-                except:
-                    continue
-            
-            # Verificar si hay formulario de login visible (NO logueado)
-            if self.check_any_xpath_exists(self.selectors["username_input"], 2000):
-                self._log("❌ Formulario de login visible - NO LOGUEADO", "info")
-                return False
-            
-            # Verificar URL actual
-            current_url = self.page.url.lower()
-            if "loginsesion" in current_url or "login" in current_url:
-                self._log("❌ URL indica página de login", "info")
-                return False
-            
-            # Última verificación: presencia de elementos post-login
-            if self.check_any_xpath_exists(self.selectors["btn_success_indicator"], 2000):
-                self._log("✅ Confirmado por elementos post-login", "success")
-                return True
-            
-            self._log("❌ No se pudo determinar estado de sesión", "warning")
-            return False
-            
-        except Exception as e:
-            self._log(f"❌ Error verificando sesión: {str(e)}", "error")
-            return False
+    def _get_login_payload(self, request_verification_token: str = None) -> dict:
+        payload = {
+            'DominioLoginAD': '',
+            'UsuarioLogado.Login': self.user_eco,
+            'UsuarioLogado.Password': self.ps_eco,
+            'IniciarSesionAD': 'false'
+        }
+        # Agregar token CSRF si está disponible
+        if request_verification_token:
+            payload['__RequestVerificationToken'] = request_verification_token
+        return payload
 
-    def fill_login_form(self) -> bool:
-        """
-        Llena el formulario de login de EcoDigital
-        """
-        try:
-            self._log("📝 Buscando formulario de login...")
-            
-            # Esperar a que cargue la página
-            self.page.wait_for_load_state("domcontentloaded")
-            self.helper.human_like_delay(1, 2)
-            
-            # BUSCAR Y LLENAR CAMPO USUARIO
-            username_input = self.find_element_by_xpath_list(
-                self.selectors["username_input"], 
-                timeout=8000
-            )
-            if not username_input:
-                self._log("❌ No se pudo encontrar el campo de usuario", "error")
-                return False
-            
-            # Limpiar y escribir usuario
-            username_input.click(click_count=3)
-            username_input.press("Backspace")
-            self.helper.human_like_delay(0.5, 1)
-            
-            for char in self.user_eco:  # Reutilizamos la variable de email como usuario
-                username_input.type(char, delay=uniform(50, 150))
-            self.helper.human_like_delay(1, 2)
-            
-            # BUSCAR Y LLENAR CAMPO CONTRASEÑA
-            password_input = self.find_element_by_xpath_list(
-                self.selectors["password_input"], 
-                timeout=5000
-            )
-            if not password_input:
-                self._log("❌ No se pudo encontrar el campo de contraseña", "error")
-                return False
-            
-            # Escribir contraseña
-            password_input.click()
-            self.helper.human_like_delay(0.5, 1)
-            
-            for char in self.ps_eco:  # Reutilizamos la variable de password
-                password_input.type(char, delay=uniform(80, 200))
-            self.helper.human_like_delay(1, 2)
-            
-            # BUSCAR Y HACER CLIC EN BOTÓN LOGIN
-            login_button = self.find_element_by_xpath_list(
-                self.selectors["login_button"], 
-                timeout=5000
-            )
-            if not login_button:
-                self._log("❌ No se pudo encontrar el botón de login", "error")
-                return False
-            
-            self._log("🔑 Enviando credenciales...")
-            login_button.click()
-            
-            return True
-            
-        except Exception as e:
-            self._log(f"❌ Error llenando formulario: {str(e)}", "error")
-            return False
-
-    def _try_cookies_login(self) -> bool:
-        """
-        Intenta hacer login usando cookies guardadas específicas del usuario
-        """
-        try:
-            # Usar self.cookies_path (ya es específica por usuario)
-            if not path.exists(self.cookies_path):
-                self._log(f"📁 No hay cookies guardadas para usuario: {self.user_eco}", "info")
-                return False
-                
-            cookies = self.helper.load_cookies(self.cookies_path)
-            if not cookies:
-                self._log("📁 Archivo de cookies vacío o inválido", "info")
-                return False
-            
-            # Limpiar cookies existentes y agregar las guardadas
-            self.context.clear_cookies()
-            self.context.add_cookies(cookies)
-            
-            # Navegar a EcoDigital
-            self.open_url(self.eco_turnos_url)
-            self.page.wait_for_load_state("domcontentloaded")
-            self.helper.human_like_delay(3, 5)
-            
-            # Verificar si el login fue exitoso
-            if self.is_logged_in():
-                self._log(f"✅ Login con cookies exitoso para {self.user_eco}", "success")
-                return True
-            else:
-                self._log("❌ Cookies no válidas o expiradas", "warning")
-                return False
-            
-        except Exception as e:
-            self._log(f"❌ Error en login con cookies: {str(e)}", "error")
-            return False
+    def _extract_csrf_token(self, html: str) -> str:
+        """Extrae token __RequestVerificationToken del HTML"""
+        patterns = [
+            r'name="__RequestVerificationToken"\s+type="hidden"\s+value="([^"]+)"',
+            r'value="([^"]+)"\s+name="__RequestVerificationToken"\s+type="hidden"',
+            r'__RequestVerificationToken\s*=\s*["\']([^"\']+)["\']'
+        ]
+        for pattern in patterns:
+            match = search(pattern, html)
+            if match:
+                return match.group(1)
+        return None
 
     def login(self, use_cookies: bool = True) -> bool:
         """
-        Login en EcoDigital
+        Login con manejo robusto de sesión y Cloudflare
         """
-        if self.login_attempts >= self.max_login_attempts:
-            self._log("🚫 Límite de intentos de login alcanzado", "error")
-            return False
-            
-        self.login_attempts += 1
-        
-        # 1. INTENTAR CON COOKIES
-        if use_cookies and self._try_cookies_login():
-            return True
-        
-        # 2. VERIFICAR SI YA ESTAMOS LOGUEADOS
-        if self.is_logged_in():
-            self._log("✅ Ya hay una sesión activa", "success")
-            self.save_cookies()
-            return True
-        
-        # 3. NAVEGAR A ECODIGITAL
+        self.log.inicio_proceso("LOGIN ECO")
+
         try:
-            if self.is_logged_in():
-                self.open_url(self.eco_turnos_url)
-            else:
-                self.open_url(self.eco_login_url)
-            
-            self.page.wait_for_load_state("domcontentloaded")
-            self.helper.human_like_delay(2, 4)
-            
-            if self.is_logged_in():
-                self.save_cookies()
+            # 1. Intentar con cookies primero
+            if use_cookies and self._try_cookies_login():
+                self.log.comentario("INFO", "Login exitoso usando cookies")
+                self.log.fin_proceso("LOGIN ECO")
                 return True
-                
-        except Exception as e:
-            self._log(f"❌ Error navegando a EcoDigital: {str(e)}", "error")
-            return self.login(use_cookies=False)
-        
-        # 4. LLENAR FORMULARIO
-        if not self.fill_login_form():
-            return self.login(use_cookies=False)
-        
-        # 5. ESPERAR RESPUESTA
-        self._log("⏳ Esperando respuesta del login...")
-        self.page.wait_for_load_state("networkidle", timeout=10000)
-        self.helper.human_like_delay(3, 6)
-        
-        # 6. VERIFICAR ERRORES
-        if self.check_any_xpath_exists(self.selectors["error_messages"], 3000):
-            self._log("❌ Error de credenciales detectado", "error")
+
+            # 2. GET inicial para obtener cookies y CSRF token
+            self.log.proceso("GET inicial para obtener cookies y token CSRF")
+            
+            response = self.session.get(
+                self.eco_login_url,
+                timeout=self.timeout,
+                allow_redirects=True
+            )
+
+            if response.status_code == 403:
+                self.log.error("Cloudflare bloqueó la petición (403)", "GET inicial")
+                self.log.fin_proceso("LOGIN ECO")
+                return False
+
+            if response.status_code != 200:
+                self.log.error(f"Error en GET inicial: {response.status_code}", "GET inicial")
+                self.log.fin_proceso("LOGIN ECO")
+                return False
+
+            # 3. Extraer token CSRF si existe
+            csrf_token = self._extract_csrf_token(response.text)
+            if csrf_token:
+                self.log.comentario("INFO", f"Token CSRF encontrado: {csrf_token[:20]}...")
+
+            # 4. POST login con payload correcto
+            self.log.proceso("Enviando credenciales")
+            payload = self._get_login_payload(csrf_token)
+
+            login_response = self.session.post(
+                self.eco_login_url,
+                data=payload,
+                timeout=self.timeout,
+                allow_redirects=True,
+                headers={
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            )
+
+            if login_response.status_code == 403:
+                self.log.error("Cloudflare bloqueó el POST (403)", "POST login")
+                self.log.fin_proceso("LOGIN ECO")
+                return False
+
+            if "Usuario o contraseña incorrectos" in login_response.text:
+                self.log.error("Credenciales incorrectas", "POST login")
+                self.log.fin_proceso("LOGIN ECO")
+                return False
+
+            if self._is_logged_in_response(login_response):
+                self.log.comentario("SUCCESS", "Login exitoso")
+                self.save_cookies()
+                self.log.fin_proceso("LOGIN ECO")
+                return True
+
+            # Debug: guardar respuesta para análisis
+            self.log.comentario("DEBUG", f"Respuesta login (200 chars): {login_response.text[:200]}")
+            self.log.error("Login fallido (respuesta inesperada)", "POST login")
+            self.log.fin_proceso("LOGIN ECO")
             return False
-        
-        # 7. VERIFICAR LOGIN EXITOSO
-        if self.is_logged_in():
-            self.save_cookies()
-            self.login_attempts = 0
-            return True
-        else:
-            self._log("❌ Login fallido", "error")
-            self.helper.human_like_delay(5, 10)
-            return self.login(use_cookies=False)
+
+        except exceptions.Timeout:
+            self.log.error("Timeout en la conexión", "LOGIN")
+            self.log.fin_proceso("LOGIN ECO")
+            return False
+        except Exception as e:
+            self.log.error(str(e), "LOGIN")
+            import traceback
+            traceback.print_exc()
+            self.log.fin_proceso("LOGIN ECO")
+            return False
+
+    def _is_logged_in_response(self, response) -> bool:
+        """Verifica si la respuesta indica login exitoso"""
+        content = response.text.lower()
+        # Indicadores más robustos
+        indicators = [
+            'fc-btnvercalendarioturnos-button',
+            'turnosasesor',
+            'master#',
+            'bienvenido',
+            'cerrar sesión',
+            'logout'
+        ]
+        # También verificar que NO haya indicadores de error
+        error_indicators = ['usuario o contraseña incorrectos', 'acceso denegado', 'no autorizado']
+        if any(err in content for err in error_indicators):
+            return False
+        return any(indicator in content for indicator in indicators)
+
+    def _try_cookies_login(self) -> bool:
+        """Valida cookies guardadas contra el endpoint de API real"""
+        try:
+            import os
+            if not os.path.exists(self.cookies_path):
+                return False
+
+            with open(self.cookies_path, 'r') as f:
+                cookies = load(f)
+
+            if not cookies:
+                return False
+
+            self.session.cookies.clear()
+            clean_domain = sub(r'^https?://', '', self.eco_base_url).split('/')[0]
+
+            for cookie in cookies:
+                self.session.cookies.set(
+                    cookie['name'],
+                    cookie['value'],
+                    domain=cookie.get('domain', clean_domain),
+                    path=cookie.get('path', '/'),
+                    secure=cookie.get('secure', True)
+                )
+
+            # ✅ Validar contra el endpoint de API real, no la página web
+            response = self.session.get(
+                self.eco_api_turnos,  # ← Endpoint correcto para API
+                json={"fechaInicio": "1/1/2026", "fechaFin": "31/1/2026"},
+                headers={'Content-Type': 'application/json'},
+                timeout=15
+            )
+
+            # Verificar que NO devuelva "NOSESS"
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    if isinstance(data, dict) and 'turnos' in data:
+                        return True
+                    if isinstance(data, str) and data == "NOSESS":
+                        self.log.comentario("WARNING", "Cookies válidas pero sesión expirada en API")
+                        return False
+                except:
+                    pass
+            
+            self.log.comentario("WARNING", "Cookies inválidas o expiradas")
+            return False
+
+        except Exception as e:
+            self.log.error(str(e), "LOGIN COOKIES")
+            return False
+
+    def save_cookies(self):
+        """Guarda cookies de forma compatible con recarga"""
+        try:
+            cookies = []
+            for cookie in self.session.cookies:
+                cookies.append({
+                    'name': cookie.name,
+                    'value': cookie.value,
+                    'domain': cookie.domain or self.eco_base_url,
+                    'path': cookie.path or '/',
+                    'expires': cookie.expires,
+                    'secure': cookie.secure,
+                    'rest': getattr(cookie, 'rest', {})
+                })
+
+            with open(self.cookies_path, 'w') as f:
+                dump(cookies, f, indent=2)
+            self.log.comentario("SUCCESS", f"Cookies guardadas")
+        except Exception as e:
+            self.log.error(str(e), "SAVE COOKIES")
+
+    def get_session(self):
+        """Retorna la sesión con headers listos para API"""
+        # Asegurar headers compatibles con API JSON
+        self.session.headers.update({
+            'Content-Type': 'application/json;charset=UTF-8',
+            'Accept': 'application/json, text/plain, */*',
+            'X-Requested-With': 'XMLHttpRequest'
+        })
+        return self.session

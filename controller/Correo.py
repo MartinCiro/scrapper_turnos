@@ -1,5 +1,5 @@
 # ===========================================================================
-# Importaciones de clases y librerias necesarias
+# Importe de clases/librerias necesarias
 # ===========================================================================
 
 # Region Llamado de clases o librerias necesarias
