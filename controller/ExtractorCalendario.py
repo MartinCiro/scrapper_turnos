@@ -1,10 +1,9 @@
 from glob import glob
-from shutil import copy2
 from json import dump, load
 from requests import Session
 from os import path as os_path, makedirs
 from datetime import datetime, timedelta
-from numpy import zeros, int32 as np_32, np_array
+from numpy import zeros, int32 as np_32, array as np_array
 
 from controller.Config import Config
 
@@ -20,7 +19,7 @@ class ExtractorCalendario(Config):
         
         self.session = session
         self.user_email = user_email
-        self.nombre_usuario = None
+        self.nombre_usuario = self.user_eco.split('@')[0] if '@' in self.user_eco else self.user_eco
 
     def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None):
         """
@@ -103,9 +102,9 @@ class ExtractorCalendario(Config):
             if 'turnos' in turnos_data and len(turnos_data['turnos']) > 0:
                 primer_turno = turnos_data['turnos'][0]
                 if 'Asesor' in primer_turno and 'NombreCompleto' in primer_turno['Asesor']:
-                    self.nombre_usuario = primer_turno['Asesor']['NombreCompleto']
-                    if self.nombre_usuario:
-                        self.log.comentario(f"👤 Usuario identificado: {self.nombre_usuario}", "Usuario identificado")
+                    nombre_usuario = primer_turno['Asesor']['NombreCompleto']
+                    if nombre_usuario:
+                        self.log.comentario(f"👤 Usuario identificado: {nombre_usuario}", "Usuario identificado")
             
             # Procesar turnos por día
             turnos_por_dia = {}
@@ -392,7 +391,7 @@ class ExtractorCalendario(Config):
         try:
             if not self.nombre_usuario:
                 # Usar email como fallback
-                nombre_usuario = self.user_email.split('@')[0] if '@' in self.user_email else self.user_email
+                self.nombre_usuario = self.user_email.split('@')[0] if '@' in self.user_email else self.user_email
             
             # Limpiar nombre para usar como directorio
             nombre_limpio = "".join(c for c in self.nombre_usuario if c.isalnum() or c in (' ', '_')).rstrip() if self.nombre_usuario else self.user_email
