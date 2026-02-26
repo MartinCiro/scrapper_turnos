@@ -6,22 +6,26 @@ from traceback import print_exc
 from os import path as os_path, listdir, rmdir, remove
 
 from controller.Login import Login
-from controller.Config import Config
 from controller.ExtractorCalendario import ExtractorCalendario
 
-class Ejecuciones(Config):
+class Ejecuciones:
     """
     Clase orquestadora para el flujo completo de login y extracción de turnos mediante HTTP.
     Versión HTTP - sin dependencia de Playwright ni interacción con UI
     """
 
-    def __init__(self) -> None:
+    def __init__(self, config, user_eco: str = None, ps_eco: str = None, telegram_token: str = None, telegram_chat: str = None) -> None:
         """Constructor"""
+        self.config = config
+
         self.login_instance = None
         self.extractor_instance = None
         self.json_fue_eliminado = False
-        self.json_eliminado_por_mes = False  # Nueva bandera para tracking
-        super().__init__()
+        self.json_eliminado_por_mes = False  
+        self.user_eco = user_eco 
+        self.ps_eco = ps_eco 
+        self.telegram_token = telegram_token 
+        self.telegram_chat = telegram_chat 
 
     def _verificar_y_eliminar_json_por_mes(self, ruta_json):
         """
