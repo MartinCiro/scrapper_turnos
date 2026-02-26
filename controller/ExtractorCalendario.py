@@ -1,10 +1,9 @@
 from glob import glob
-from shutil import copy2
 from json import dump, load
 from requests import Session
 from os import path as os_path, makedirs
 from datetime import datetime, timedelta
-from numpy import zeros, int32 as np_32, np_array
+from numpy import zeros, int32 as np_32, array as np_array
 
 class ExtractorCalendario:
     """
@@ -100,9 +99,9 @@ class ExtractorCalendario:
             if 'turnos' in turnos_data and len(turnos_data['turnos']) > 0:
                 primer_turno = turnos_data['turnos'][0]
                 if 'Asesor' in primer_turno and 'NombreCompleto' in primer_turno['Asesor']:
-                    self.nombre_usuario = primer_turno['Asesor']['NombreCompleto']
-                    if self.nombre_usuario:
-                        self.log.comentario(f"👤 Usuario identificado: {self.nombre_usuario}", "Usuario identificado")
+                    nombre_usuario = primer_turno['Asesor']['NombreCompleto']
+                    if nombre_usuario:
+                        self.log.comentario(f"👤 Usuario identificado: {nombre_usuario}", "Usuario identificado")
             
             # Procesar turnos por día
             turnos_por_dia = {}

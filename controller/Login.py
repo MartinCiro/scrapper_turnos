@@ -3,12 +3,9 @@ from json import load, dump
 from datetime import datetime
 from re import sub
 
-# 👇 NO IMPORTAMOS Config
-
 class Login:
     """
-    Clase corregida para bypass Cloudflare en VPS.
-    ¡CRÍTICO: Mantiene espacios al final en URLs/headers como en el curl original!
+    Clase corregida para manejo robusto de sesión y Cloudflare.
     """
 
     def __init__(self, config):  
@@ -16,7 +13,7 @@ class Login:
         self.config = config  
         self.session = Session()
         
-        # 🔑 HEADERS COMPLETOS
+        # 🔑 HEADERS BASE (sin espacios extra al final)
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -36,17 +33,34 @@ class Login:
             'Referer': f'{self.config.eco_login_url}  ',  
         })
 
-    def _get_login_payload(self) -> dict:
-        return {
+    def _get_login_payload(self, request_verification_token: str = None) -> dict:
+        payload = {
             'DominioLoginAD': '',
             'UsuarioLogado.Login': self.config.user_eco,  
             'UsuarioLogado.Password': self.config.ps_eco,  
             'IniciarSesionAD': 'false'
         }
+        # Agregar token CSRF si está disponible
+        if request_verification_token:
+            payload['__RequestVerificationToken'] = request_verification_token
+        return payload
+
+    def _extract_csrf_token(self, html: str) -> str:
+        """Extrae token __RequestVerificationToken del HTML"""
+        patterns = [
+            r'name="__RequestVerificationToken"\s+type="hidden"\s+value="([^"]+)"',
+            r'value="([^"]+)"\s+name="__RequestVerificationToken"\s+type="hidden"',
+            r'__RequestVerificationToken\s*=\s*["\']([^"\']+)["\']'
+        ]
+        for pattern in patterns:
+            match = search(pattern, html)
+            if match:
+                return match.group(1)
+        return None
 
     def login(self, use_cookies: bool = True) -> bool:
         """
-        Login con bypass Cloudflare mejorado para VPS
+        Login con manejo robusto de sesión y Cloudflare
         """
         self.config.log.inicio_proceso("LOGIN ECO")  
 
@@ -66,6 +80,9 @@ class Login:
 
             login_url_con_espacios = f'{self.config.eco_login_url}  '  
 
+            # 2. GET inicial para obtener cookies y CSRF token
+            self.log.proceso("GET inicial para obtener cookies y token CSRF")
+            
             response = self.session.get(
                 login_url_con_espacios,
                 timeout=self.config.timeout,  
@@ -87,10 +104,12 @@ class Login:
             # 3. POST login
             self.config.log.proceso("Enviando credenciales")  
 
-            payload = self._get_login_payload()
+            # 4. POST login con payload correcto
+            self.log.proceso("Enviando credenciales")
+            payload = self._get_login_payload(csrf_token)
 
             login_response = self.session.post(
-                login_url_con_espacios,
+                self.eco_login_url,
                 data=payload,
                 timeout=self.config.timeout,  
                 allow_redirects=True
@@ -120,23 +139,31 @@ class Login:
             self.config.log.error("Timeout en la conexión", "LOGIN")  
             self.config.log.fin_proceso("LOGIN ECO")  
             return False
-
         except Exception as e:
             self.config.log.error(str(e), "LOGIN")  
             self.config.log.fin_proceso("LOGIN ECO")  
             return False
 
-
     def _is_logged_in_response(self, response) -> bool:
+        """Verifica si la respuesta indica login exitoso"""
         content = response.text.lower()
-        logged_in_indicators = [
+        # Indicadores más robustos
+        indicators = [
             'fc-btnvercalendarioturnos-button',
             'turnosasesor',
-            'master#'
+            'master#',
+            'bienvenido',
+            'cerrar sesión',
+            'logout'
         ]
-        return any(indicator in content for indicator in logged_in_indicators)
+        # También verificar que NO haya indicadores de error
+        error_indicators = ['usuario o contraseña incorrectos', 'acceso denegado', 'no autorizado']
+        if any(err in content for err in error_indicators):
+            return False
+        return any(indicator in content for indicator in indicators)
 
     def _try_cookies_login(self) -> bool:
+        """Valida cookies guardadas contra el endpoint de API real"""
         try:
             import os
 
@@ -183,8 +210,8 @@ class Login:
             self.config.log.error(str(e), "LOGIN COOKIES")  
             return False
 
-
     def save_cookies(self):
+        """Guarda cookies de forma compatible con recarga"""
         try:
             self.config.log.proceso("Guardando cookies")  
 
@@ -193,10 +220,11 @@ class Login:
                 cookies.append({
                     'name': cookie.name,
                     'value': cookie.value,
-                    'domain': cookie.domain or 'ecodigital.emergiacc.com',
-                    'path': cookie.path,
+                    'domain': cookie.domain or self.eco_base_url,
+                    'path': cookie.path or '/',
                     'expires': cookie.expires,
                     'secure': cookie.secure,
+                    'rest': getattr(cookie, 'rest', {})
                 })
 
             with open(self.config.cookies_path, 'w') as f:  
@@ -207,7 +235,12 @@ class Login:
         except Exception as e:
             self.config.log.error(str(e), "SAVE COOKIES")  
 
-
     def get_session(self):
-        """Retorna la sesión actual para hacer requests adicionales"""
+        """Retorna la sesión con headers listos para API"""
+        # Asegurar headers compatibles con API JSON
+        self.session.headers.update({
+            'Content-Type': 'application/json;charset=UTF-8',
+            'Accept': 'application/json, text/plain, */*',
+            'X-Requested-With': 'XMLHttpRequest'
+        })
         return self.session
