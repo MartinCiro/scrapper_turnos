@@ -280,6 +280,10 @@ class Ejecuciones:
                 
                 # Obtener datos actualizados para mostrar resumen
                 ruta_json = self.extractor_instance.obtener_ruta_json_usuario()
+                cambios_detectados = False
+                total_cambios = 0
+                dias_con_cambios = []
+                json_data = {}
                 if ruta_json and os_path.exists(ruta_json):
                     with open(ruta_json, 'r', encoding='utf-8') as f:
                         json_data = load(f)
