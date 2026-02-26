@@ -16,6 +16,8 @@ class Config:
         # 🔐 CREDENCIALES ECODIGITAL
         self.user_eco = self._get_env_variable("USER_ECO")
         self.ps_eco = self._get_env_variable("PASSWD_ECO")
+        self.telegram_token = self._get_env_variable("TELEGRAM_TOKEN")  # O cargar desde variables de entorno
+        self.telegram_chat = self._get_env_variable("TELEGRAM_CHAT")
         
         # 🌐 URLs ECODIGITAL
         self.eco_base_url = "https://ecodigital.emergiacc.com"

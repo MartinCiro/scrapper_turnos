@@ -5,21 +5,19 @@ from os import path as os_path, makedirs
 from datetime import datetime, timedelta
 from numpy import zeros, int32 as np_32, array as np_array
 
-from controller.Config import Config
-
-class ExtractorCalendario(Config):
+class ExtractorCalendario:
     """
     Clase encargada de extraer datos del calendario de turnos de EcoDigital usando API HTTP.
     Versión HTTP - sin dependencia de Playwright
     """
     
-    def __init__(self, session: Session, user_email: str):
+    def __init__(self, session: Session, config):
         """Constructor que inicializa con sesión HTTP"""
         super().__init__()
         
         self.session = session
-        self.user_email = user_email
-        self.nombre_usuario = self.user_eco.split('@')[0] if '@' in self.user_eco else self.user_eco
+        self.nombre_usuario = None
+        self.config = config
 
     def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None):
         """
@@ -391,10 +389,10 @@ class ExtractorCalendario(Config):
         try:
             if not self.nombre_usuario:
                 # Usar email como fallback
-                self.nombre_usuario = self.user_email.split('@')[0] if '@' in self.user_email else self.user_email
+                nombre_usuario = self.config.user_eco.split('@')[0] if '@' in self.config.user_eco else self.config.user_eco
             
             # Limpiar nombre para usar como directorio
-            nombre_limpio = "".join(c for c in self.nombre_usuario if c.isalnum() or c in (' ', '_')).rstrip() if self.nombre_usuario else self.user_email
+            nombre_limpio = "".join(c for c in self.nombre_usuario if c.isalnum() or c in (' ', '_')).rstrip() if self.nombre_usuario else self.config.user_eco
             nombre_directorio = nombre_limpio.replace(' ', '_').upper()
             
             # Ruta: ./data/usuarios/{NOMBRE_USUARIO}/
@@ -785,8 +783,8 @@ class ExtractorCalendario(Config):
             nombre_usuario = datos_extractos.get('nombre_usuario', 'Usuario Desconocido')
             
             usuario_info = {
-                "id": nombre_usuario.upper().replace(" ", "_") if nombre_usuario else self.user_email.upper().replace("@", "_").replace(".", "_"),
-                "nombre_completo": nombre_usuario if nombre_usuario else self.user_email
+                "id": nombre_usuario.upper().replace(" ", "_") if nombre_usuario else self.config.user_eco.upper().replace("@", "_").replace(".", "_"),
+                "nombre_completo": nombre_usuario if nombre_usuario else self.config.user_eco
             }
             
             # Información del período
