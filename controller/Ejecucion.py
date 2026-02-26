@@ -7,6 +7,7 @@ from os import path as os_path, listdir, rmdir, remove
 
 from controller.Login import Login
 from controller.ExtractorCalendario import ExtractorCalendario
+from controller.NotificadorTelegram import NotificadorTelegram 
 
 class Ejecuciones:
     """
@@ -21,6 +22,7 @@ class Ejecuciones:
         self.extractor_instance = None
         self.json_fue_eliminado = False
         self.json_eliminado_por_mes = False
+        self.notificador = NotificadorTelegram(self.config) 
 
     def _verificar_y_eliminar_json_por_mes(self, ruta_json):
         """
@@ -294,11 +296,25 @@ class Ejecuciones:
                     elif self.json_fue_eliminado:
                         print("📝 NOTA: Se creó nuevo JSON (el anterior fue eliminado por antigüedad)")
                     
-                    if json_data.get("resumen_cambios", {}).get("se_detectaron_cambios", False):
-                        print(f"🔄 Cambios detectados: {json_data['resumen_cambios']['total_cambios']} días modificados")
-                        print(f"📅 Días con cambios: {json_data['resumen_cambios']['dias_con_cambios']}")
+                    # Verificar cambios
+                    cambios_detectados = json_data.get("resumen_cambios", {}).get("se_detectaron_cambios", False)
+                    if cambios_detectados:
+                        total_cambios = json_data['resumen_cambios']['total_cambios']
+                        dias_con_cambios = json_data['resumen_cambios']['dias_con_cambios']
+                        print(f"🔄 Cambios detectados: {total_cambios} días modificados")
+                        print(f"📅 Días con cambios: {dias_con_cambios}")
                     else:
                         print(f"✅ Sin cambios detectados")
+                    
+                    # ===== ENVIAR NOTIFICACIÓN POR TELEGRAM =====
+                    self._enviar_notificacion_telegram(
+                        json_data=json_data,
+                        cambios_detectados=cambios_detectados,
+                        total_cambios=total_cambios,
+                        dias_con_cambios=dias_con_cambios,
+                        json_eliminado_por_mes=self.json_eliminado_por_mes,
+                        json_fue_eliminado=self.json_fue_eliminado
+                    )
                 
                 return {
                     "exito": True,
@@ -307,10 +323,18 @@ class Ejecuciones:
                     "mes_calendario": mes_periodo if 'mes_periodo' in locals() else None,
                     "fecha_generacion": fecha_generacion if 'fecha_generacion' in locals() else None,
                     "json_eliminado": self.json_fue_eliminado,
-                    "json_eliminado_por_mes": self.json_eliminado_por_mes
+                    "json_eliminado_por_mes": self.json_eliminado_por_mes,
+                    "cambios_detectados": cambios_detectados,
+                    "total_cambios": total_cambios,
+                    "dias_con_cambios": dias_con_cambios
                 }
             else:
                 print("❌ Error en el proceso")
+                self.notificador.notificar_error(
+                    f"❌ Error en el proceso de extracción\n"
+                    f"👤 Usuario: {user_email}\n"
+                    f"📅 Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                )
                 return {
                     "exito": False,
                     "error": "No se pudo completar el proceso"
@@ -319,10 +343,133 @@ class Ejecuciones:
         except Exception as e:
             print(f"💥 Error en ejecución: {e}")
             print_exc()
+            self.notificador.notificar_error(
+                f"💥 Error crítico en ejecución\n"
+                f"👤 Usuario: {user_email}\n"
+                f"❌ Error: {str(e)[:100]}...\n"
+                f"📅 Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+            )
             return {
                 "exito": False,
                 "error": str(e)
             }
+
+    def _enviar_notificacion_telegram(self, json_data, cambios_detectados, total_cambios, dias_con_cambios, json_eliminado_por_mes, json_fue_eliminado):
+        """
+        Envía notificación por Telegram según los resultados de la ejecución
+        """
+        try:
+            # Datos básicos
+            usuario = json_data.get("usuario", {}).get("nombre_completo", "Desconocido")
+            mes = json_data.get("periodo", {}).get("mes", "Desconocido")
+            fecha_generacion = json_data.get("periodo", {}).get("fecha_generacion", "Desconocida")
+            
+            # CABECERA
+            mensaje = f"📊 *REPORTE DE EXTRACCIÓN*\n"
+            mensaje += f"👤 *Usuario:* {usuario}\n"
+            mensaje += f"📅 *Mes:* {mes}\n"
+            mensaje += f"🕐 *Fecha:* {fecha_generacion}\n"
+            mensaje += "─" * 30 + "\n\n"
+            
+            # SECCIÓN: Estado del JSON
+            if json_eliminado_por_mes:
+                mensaje += f"🗑️ *JSON eliminado:* Cambio de mes\n"
+                mensaje += f"📝 *Acción:* Nueva extracción\n\n"
+            elif json_fue_eliminado:
+                mensaje += f"🗑️ *JSON eliminado:* Por antigüedad (>2 días)\n"
+                mensaje += f"📝 *Acción:* Nueva extracción\n\n"
+            else:
+                mensaje += f"📁 *JSON existente:* Conservado\n\n"
+            
+            # SECCIÓN: Cambios detectados
+            if cambios_detectados:
+                mensaje += f"🔄 *CAMBIOS DETECTADOS*\n"
+                mensaje += f"📊 *Total:* {total_cambios} día(s) modificado(s)\n"
+                
+                # Detalle de días con cambios (si hay pocos, los listamos)
+                if dias_con_cambios and len(dias_con_cambios) <= 10:
+                    dias_str = ", ".join([str(d) for d in sorted(dias_con_cambios)])
+                    mensaje += f"📅 *Días:* {dias_str}\n"
+                elif dias_con_cambios:
+                    mensaje += f"📅 *Días:* {len(dias_con_cambios)} días modificados\n"
+                
+                mensaje += "\n"
+                
+                # Obtener detalles de los cambios para los primeros 3 días
+                if dias_con_cambios and len(dias_con_cambios) > 0:
+                    mensaje += f"📋 *Detalles de cambios:*\n"
+                    
+                    # Limitar a 3 días para no saturar el mensaje
+                    dias_a_mostrar = sorted(dias_con_cambios)[:3]
+                    calendario = {d["dia"]: d for d in json_data.get("calendario", [])}
+                    
+                    for dia in dias_a_mostrar:
+                        if dia in calendario:
+                            dia_info = calendario[dia]
+                            cambios_dia = dia_info.get("cambios", {})
+                            campos = cambios_dia.get("campos_modificados", [])
+                            
+                            # Obtener valores anteriores si existen en el historial
+                            historial = cambios_dia.get("historial", [])
+                            valor_anterior = ""
+                            valor_nuevo = ""
+                            
+                            if historial and len(historial) > 0:
+                                detalle = historial[-1].get("detalle", {})
+                                if detalle:
+                                    antes = detalle.get("antes", {})
+                                    despues = detalle.get("despues", {})
+                                    
+                                    # Formato legible de los cambios
+                                    if "turno.horario" in campos:
+                                        horario_antes = antes.get("turno", {}).get("horario", "N/A")
+                                        horario_despues = despues.get("turno", {}).get("horario", "N/A")
+                                        valor_anterior += f"Horario: {horario_antes}\n      "
+                                        valor_nuevo += f"Horario: {horario_despues}\n      "
+                                    
+                                    if "turno.tipo" in campos:
+                                        tipo_antes = antes.get("turno", {}).get("tipo", "N/A")
+                                        tipo_despues = despues.get("turno", {}).get("tipo", "N/A")
+                                        valor_anterior += f"Tipo: {tipo_antes}\n      "
+                                        valor_nuevo += f"Tipo: {tipo_despues}\n      "
+                                    
+                                    if "break.horario" in campos:
+                                        break_antes = antes.get("break", {}).get("horario", "N/A")
+                                        break_despues = despues.get("break", {}).get("horario", "N/A")
+                                        valor_anterior += f"Break: {break_antes}\n      "
+                                        valor_nuevo += f"Break: {break_despues}\n      "
+                            
+                            mensaje += f"  • *Día {dia}*\n"
+                            if valor_anterior and valor_nuevo:
+                                mensaje += f"    ⬅️ *Antes:* {valor_anterior}\n"
+                                mensaje += f"    ➡️ *Después:* {valor_nuevo}\n"
+                            else:
+                                mensaje += f"    📝 Campos: {', '.join(campos)}\n"
+                    
+                    if len(dias_con_cambios) > 3:
+                        mensaje += f"    ... y {len(dias_con_cambios) - 3} día(s) más\n"
+            else:
+                mensaje += f"✅ *Sin cambios detectados*\n"
+                mensaje += f"📋 El calendario no ha sido modificado desde la última ejecución.\n"
+            
+            # FOOTER
+            mensaje += "\n" + "─" * 30 + "\n"
+            mensaje += f"🤖 *Bot Notificador*"
+            
+            # Enviar mensaje
+            self.notificador.enviar_mensaje(mensaje, formato='Markdown')
+            
+        except Exception as e:
+            print(f"⚠️ Error enviando notificación Telegram: {e}")
+            # Fallback a notificación simple
+            if cambios_detectados:
+                self.notificador.notificar_info(
+                    f"Se detectaron {total_cambios} cambios en el calendario de {json_data.get('periodo', {}).get('mes', '')}"
+                )
+            else:
+                self.notificador.notificar_exito(
+                    f"Extracción completada - Sin cambios en {json_data.get('periodo', {}).get('mes', '')}"
+                )
 
     def ejecuta_login_y_extraccion(self):
         """
