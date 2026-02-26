@@ -3,8 +3,6 @@
 # ===========================================================================
 from requests import exceptions, post
 
-# 👇 NO IMPORTAMOS Config
-
 class NotificadorTelegram:
     """
     NotificadorTelegram
@@ -13,22 +11,20 @@ class NotificadorTelegram:
     Recibe la configuración por inyección de dependencias.
     """
     
-    def __init__(self, config):  # 👈 Recibe config inyectado
+    def __init__(self, config):  
         """
         Constructor con inyección de configuración
         
         Args:
             config: Instancia de Config con las credenciales de Telegram
         """
-        self.config = config  # 👈 Guardar configuración inyectada
+        self.config = config  
         self.__asuntoNotificacion = "🔔 Alerta Bot"
         self.api_url = "https://api.telegram.org/bot"
+        self.token = self.config.telegram_token
+        self.chat_id = self.config.telegram_chat  
         
-        # Obtener credenciales desde la configuración inyectada
-        self.token = getattr(self.config, 'telegram_token', None)  # 👈 CAMBIO: self.config.telegram_token
-        self.chat_id = getattr(self.config, 'telegram_chat', None)  # 👈 CAMBIO: self.config.telegram_chat
-        
-        if not self.token or not self.chat_id:
+        if not self.token or not self.chat_id:  
             print("⚠️  Advertencia: Token o Chat ID de Telegram no configurados")
     
     def __enviar_peticion(self, metodo: str, datos: dict) -> dict:
@@ -48,10 +44,10 @@ class NotificadorTelegram:
         url = f"{self.api_url}{self.token}/{metodo}"
         
         try:
-            response = post(url, data=datos, timeout=30)  # 👈 Usar post directamente (importado)
+            response = post(url, data=datos, timeout=30)
             response.raise_for_status()
             return response.json()
-        except exceptions.RequestException as e:  # 👈 Usar exceptions del import
+        except exceptions.RequestException as e:
             raise Exception(f"❌ Error en petición a Telegram: {str(e)}")
     
     def enviar_mensaje(self, mensaje: str, formato: str = 'HTML', silencioso: bool = False):
@@ -66,11 +62,11 @@ class NotificadorTelegram:
         Returns:
             dict: Respuesta de la API
         """
-        if not self.chat_id:
+        if not self.chat_id:  
             raise Exception("❌ Chat ID de Telegram no configurado")
         
         datos = {
-            'chat_id': self.chat_id,
+            'chat_id': self.chat_id,  
             'text': mensaje,
             'parse_mode': formato,
             'disable_notification': silencioso
@@ -78,7 +74,6 @@ class NotificadorTelegram:
         
         try:
             respuesta = self.__enviar_peticion('sendMessage', datos)
-            # Podríamos usar self.config.log si existe
             if hasattr(self.config, 'log'):
                 self.config.log.comentario("SUCCESS", "✅ Mensaje de Telegram enviado")
             else:
@@ -102,7 +97,7 @@ class NotificadorTelegram:
         Returns:
             dict: Respuesta de la API
         """
-        if not self.chat_id:
+        if not self.chat_id:  
             raise Exception("❌ Chat ID de Telegram no configurado")
         
         url = f"{self.api_url}{self.token}/sendDocument"
@@ -110,7 +105,7 @@ class NotificadorTelegram:
         try:
             with open(ruta_archivo, 'rb') as archivo:
                 files = {'document': archivo}
-                datos = {'chat_id': self.chat_id}
+                datos = {'chat_id': self.chat_id}  
                 
                 if caption:
                     datos['caption'] = caption
@@ -149,7 +144,7 @@ class NotificadorTelegram:
         Returns:
             dict: Respuesta de la API
         """
-        if not self.chat_id:
+        if not self.chat_id:  
             raise Exception("❌ Chat ID de Telegram no configurado")
         
         url = f"{self.api_url}{self.token}/sendPhoto"
@@ -157,7 +152,7 @@ class NotificadorTelegram:
         try:
             with open(ruta_foto, 'rb') as foto:
                 files = {'photo': foto}
-                datos = {'chat_id': self.chat_id}
+                datos = {'chat_id': self.chat_id}  
                 
                 if caption:
                     datos['caption'] = caption
@@ -232,29 +227,3 @@ class NotificadorTelegram:
         else:
             mensaje = "❌ **Error en el scraper**\n\nAún no se ha generado certificado"
             self.enviar_mensaje(mensaje, formato='Markdown')
-
-
-# ===========================================================================
-# Ejemplo de uso
-# ===========================================================================
-if __name__ == "__main__":
-    from controller.Config import Config  # 👈 Importamos aquí solo para el ejemplo
-    
-    # Crear configuración
-    config = Config()
-    
-    # Instanciar el notificador con la configuración inyectada
-    notificador = NotificadorTelegram(config)  # 👈 Inyectamos config
-    
-    # Probar diferentes tipos de notificaciones
-    notificador.notificar_info("Iniciando proceso de scraping...")
-    notificador.notificar_advertencia("Uso de memoria alto")
-    notificador.notificar_exito("Datos procesados correctamente")
-    
-    # Simular envío de URLs como en el correo
-    urls_prueba = [
-        "https://ejemplo.com/acta.pdf",
-        "https://ejemplo.com/certificado.pdf",
-        "https://ejemplo.com/notas.pdf"
-    ]
-    notificador.enviar_notificacion_scraper(urls_prueba, error=False)

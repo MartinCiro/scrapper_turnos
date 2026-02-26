@@ -14,18 +14,13 @@ class Ejecuciones:
     Versión HTTP - sin dependencia de Playwright ni interacción con UI
     """
 
-    def __init__(self, config, user_eco: str = None, ps_eco: str = None, telegram_token: str = None, telegram_chat: str = None) -> None:
+    def __init__(self, config):  
         """Constructor"""
-        self.config = config
-
+        self.config = config  
         self.login_instance = None
         self.extractor_instance = None
         self.json_fue_eliminado = False
-        self.json_eliminado_por_mes = False  
-        self.user_eco = user_eco 
-        self.ps_eco = ps_eco 
-        self.telegram_token = telegram_token 
-        self.telegram_chat = telegram_chat 
+        self.json_eliminado_por_mes = False
 
     def _verificar_y_eliminar_json_por_mes(self, ruta_json):
         """
@@ -236,7 +231,8 @@ class Ejecuciones:
             self.json_eliminado_por_mes = False
             
             # 1. Verificar si hay JSON que eliminar por cambio de mes (PRIORIDAD ALTA)
-            extractor_temp = ExtractorCalendario(None, user_email)
+            # 👇 PASAR config al extractor temporal
+            extractor_temp = ExtractorCalendario(None, self.config)  
             ruta_json_usuario = extractor_temp.obtener_ruta_json_usuario()
             
             if ruta_json_usuario and os_path.exists(ruta_json_usuario):
@@ -259,7 +255,11 @@ class Ejecuciones:
             
             # 2. EXTRAER datos del API (ya tenemos sesión en self.login_instance)
             print("\n🔄 Extrayendo datos del calendario vía API...")
-            self.extractor_instance = ExtractorCalendario(self.login_instance.get_session(), user_email)
+            # 👇 PASAR config al extractor
+            self.extractor_instance = ExtractorCalendario(
+                self.login_instance.get_session(), 
+                self.config  
+            )
             
             # 3. EJECUTAR proceso simplificado
             exito = self.extractor_instance.ejecutar_proceso_simplificado()
@@ -324,15 +324,15 @@ class Ejecuciones:
         
         # Configuración de reintentos
         intentos_login = 0
-        max_intentos = 3
+        max_intentos = self.config.max_retries  
         login_exitoso = False
         
         while intentos_login < max_intentos and not login_exitoso:
             try:
                 print(f"\n🔄 Intento {intentos_login + 1}/{max_intentos}")
                 
-                # Inicializar login HTTP
-                self.login_instance = Login()
+                # Inicializar login HTTP (pasando config)
+                self.login_instance = Login(self.config)  
                 
                 # Intentar login
                 resultado_login = self.login_instance.login()
@@ -341,8 +341,8 @@ class Ejecuciones:
                     login_exitoso = True
                     print("✅ Login exitoso")
                     
-                    # ✅ EXTRAER DIRECTAMENTE DEL API (sin necesidad de clicks ni navegación)
-                    return self.extraer_y_procesar_calendario(self.login_instance.user_eco)
+                    # ✅ EXTRAER DIRECTAMENTE DEL API
+                    return self.extraer_y_procesar_calendario(self.config.user_eco)  
                 else:
                     intentos_login += 1
                     print(f"❌ Intento {intentos_login} fallido")
@@ -446,11 +446,11 @@ class Ejecuciones:
         
         try:
             # Intentar login con cookies primero (más rápido)
-            self.login_instance = Login()
+            self.login_instance = Login(self.config)  
             
             if self.login_instance.login(use_cookies=True):
                 print("✅ Sesión activa con cookies")
-                return self.extraer_y_procesar_calendario(self.login_instance.user_eco)
+                return self.extraer_y_procesar_calendario(self.config.user_eco)  
             else:
                 print("❌ No hay sesión activa, haciendo login completo...")
                 return self.ejecuta_login_y_extraccion()

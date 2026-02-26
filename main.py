@@ -1,12 +1,14 @@
+from controller.Config import Config
 from controller.Ejecucion import Ejecuciones
 
 if __name__ == "__main__":
-    ejecutor = Ejecuciones()
+    # 1. Crear la configuración (carga variables de entorno)
+    config = Config()
     
-    # Ejecutar flujo completo (login + extracción + guardado)
+    # 2. Inyectar la configuración en Ejecuciones
+    ejecutor = Ejecuciones(config)
+    
+    # 3. Ejecutar flujo completo (login + extracción + guardado)
     exito = ejecutor.ejecutar_flujo_completo()
     
-    if exito:
-        print("\n✅ ✅ ✅ EJECUCIÓN EXITOSA ✅ ✅ ✅")
-    else:
-        print("\n❌ ❌ ❌ EJECUCIÓN FALLIDA ❌ ❌ ❌")
+    print("\n✅ ✅ ✅ EJECUCIÓN EXITOSA ✅ ✅ ✅" if exito else "\n❌ ❌ ❌ EJECUCIÓN FALLIDA ❌ ❌ ❌")

@@ -14,11 +14,9 @@ class ExtractorCalendario:
     
     def __init__(self, session: Session, config):
         """Constructor que inicializa con sesión HTTP"""
-        super().__init__()
-        
         self.session = session
         self.nombre_usuario = None
-        self.config = config
+        self.config = config  # Guardar configuración inyectada
 
     def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None):
         """
@@ -40,14 +38,15 @@ class ExtractorCalendario:
             fecha_inicio_fmt = fecha_inicio.replace("/0", "/").lstrip("0")
             fecha_fin_fmt = fecha_fin.replace("/0", "/").lstrip("0")
             
-            self.log.comentario("INFO", f"📡 Consultando API de turnos: {fecha_inicio_fmt} a {fecha_fin_fmt}")
+            # 👇 CAMBIO: self.log → self.config.log
+            self.config.log.comentario("INFO", f"📡 Consultando API de turnos: {fecha_inicio_fmt} a {fecha_fin_fmt}")
             
             # Headers para el request
             headers = {
                 'Content-Type': 'application/json;charset=UTF-8',
                 'Accept': 'application/json, text/plain, */*',
-                'Origin': f'{self.eco_base_url}',
-                'Referer': f'{self.eco_login_url}Master',
+                'Origin': f'{self.config.eco_base_url}',  
+                'Referer': f'{self.config.eco_login_url}Master',  
                 'Sec-Fetch-Dest': 'empty',
                 'Sec-Fetch-Mode': 'cors',
                 'Sec-Fetch-Site': 'same-origin'
@@ -61,24 +60,24 @@ class ExtractorCalendario:
             
             # Hacer request al API
             response = self.session.post(
-                self.eco_api_turnos,
+                self.config.eco_api_turnos,  
                 json=payload,
                 headers=headers,
-                timeout=30
+                timeout=self.config.timeout  
             )
             
             if response.status_code != 200:
-                self.log.error(f"Error en API: {response.status_code}", "GET turnos")
+                self.config.log.error(f"Error en API: {response.status_code}", "GET turnos")  
                 return None
             
             # Parsear respuesta JSON
             data = response.json()
             
-            self.log.comentario("Turnos extraídos exitosamente", "Data turnos")
+            self.config.log.comentario("Turnos extraídos exitosamente", "Data turnos")  
             return data
             
         except Exception as e:
-            self.log.error(f"Error extrayendo turnos del API: {str(e)}", "Extractor turnos")
+            self.config.log.error(f"Error extrayendo turnos del API: {str(e)}", "Extractor turnos")  
             import traceback
             traceback.print_exc()
             return None
