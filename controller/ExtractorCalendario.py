@@ -5,6 +5,8 @@ from os import path as os_path, makedirs
 from datetime import datetime, timedelta
 from numpy import zeros, int32 as np_32, array as np_array
 
+from traceback import print_exc
+
 class ExtractorCalendario:
     """
     Clase encargada de extraer datos del calendario de turnos de EcoDigital usando API HTTP.
@@ -77,8 +79,8 @@ class ExtractorCalendario:
             
         except Exception as e:
             self.config.log.error(f"Error extrayendo turnos del API: {str(e)}", "Extractor turnos")  
-            import traceback
-            traceback.print_exc()
+            
+            print_exc()
             return None
 
     def procesar_datos_api(self, data_api):
@@ -87,9 +89,9 @@ class ExtractorCalendario:
         """
         try:
             if not data_api or 'turnos' not in data_api:
-                self.log.error("Datos del API inválidos (no contiene 'turnos')", "Sin data turnos")
+                self.config.log.error("Datos del API inválidos (no contiene 'turnos')", "Sin data turnos")
                 if data_api:
-                    self.log.comentario("INFO", f"Estructura recibida: {list(data_api.keys())}")
+                    self.config.log.comentario("INFO", f"Estructura recibida: {list(data_api.keys())}")
                 return None
             
             # El API devuelve directamente el objeto JSON con 'turnos' y 'eventos'
@@ -101,7 +103,7 @@ class ExtractorCalendario:
                 if 'Asesor' in primer_turno and 'NombreCompleto' in primer_turno['Asesor']:
                     nombre_usuario = primer_turno['Asesor']['NombreCompleto']
                     if nombre_usuario:
-                        self.log.comentario(f"👤 Usuario identificado: {nombre_usuario}", "Usuario identificado")
+                        self.config.log.comentario(f"👤 Usuario identificado: {nombre_usuario}", "Usuario identificado")
             
             # Procesar turnos por día
             turnos_por_dia = {}
@@ -169,7 +171,7 @@ class ExtractorCalendario:
                                     'duracion_minutos': duracion_minutos
                                 }
                             except (ValueError, TypeError) as e:
-                                self.log.comentario("WARNING", f"⚠️ Error convirtiendo timestamps de break: {e}")
+                                self.config.log.comentario("WARNING", f"⚠️ Error convirtiendo timestamps de break: {e}")
                     
                     # Guardar información del día
                     turnos_por_dia[dia_num] = {
@@ -188,18 +190,18 @@ class ExtractorCalendario:
                     }
                     
                 except Exception as e:
-                    self.log.comentario("WARNING", f"⚠️ Error procesando turno {fecha_str}: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    self.config.log.comentario("WARNING", f"⚠️ Error procesando turno {fecha_str}: {e}")
+                    
+                    print_exc()
                     continue
             
-            self.log.comentario(f"Procesados {len(turnos_por_dia)} días con turnos", "Data turnos")
+            self.config.log.comentario(f"Procesados {len(turnos_por_dia)} días con turnos", "Data turnos")
             return turnos_por_dia
             
         except Exception as e:
-            self.log.error(f"Error procesando datos del API: {str(e)}", "Procesador de datos extraidos")
-            import traceback
-            traceback.print_exc()
+            self.config.log.error(f"Error procesando datos del API: {str(e)}", "Procesador de datos extraidos")
+            
+            print_exc()
             return None
 
     def _calcular_duracion_horas(self, horario: str) -> float:
@@ -306,15 +308,15 @@ class ExtractorCalendario:
             }
             
         except Exception as e:
-            self.log.error(f"Error generando estructura compatible: {str(e)}", "estructra incompatible")
-            import traceback
-            traceback.print_exc()
+            self.config.log.error(f"Error generando estructura compatible: {str(e)}", "estructra incompatible")
+            
+            print_exc()
             return None
 
     def extraer_todo(self):
         """Extrae todos los datos del calendario usando el API"""
         try:
-            self.log.comentario("INFO", "🔄 Iniciando extracción de turnos desde API...")
+            self.config.log.comentario("INFO", "🔄 Iniciando extracción de turnos desde API...")
             
             # 1. Extraer datos del API
             data_api = self.extraer_turnos_api()
@@ -329,13 +331,13 @@ class ExtractorCalendario:
             # 3. Generar estructura compatible
             datos_compatibles = self.generar_estructura_compatible(turnos_por_dia)
 
-            self.log.comentario("SUCCESS", "Extracción completada exitosamente")
+            self.config.log.comentario("SUCCESS", "Extracción completada exitosamente")
             return datos_compatibles
             
         except Exception as e:
-            self.log.error(f"Error en extracción completa: {str(e)}", "extraccion de datos completo calendario")
-            import traceback
-            traceback.print_exc()
+            self.config.log.error(f"Error en extracción completa: {str(e)}", "extraccion de datos completo calendario")
+            
+            print_exc()
             return None
 
     def mostrar_datos_extraidos(self, datos):
@@ -483,8 +485,8 @@ class ExtractorCalendario:
             
         except Exception as e:
             print(f"Error en comparar_y_actualizar: {e}")
-            import traceback
-            traceback.print_exc()
+            
+            print_exc()
             return None
 
     def _guardar_calendario_limpio(self, calendario, es_primera_extraccion=True):
@@ -702,8 +704,8 @@ class ExtractorCalendario:
             
         except Exception as e:
             print(f"Error grave detectando cambios: {e}")
-            import traceback
-            traceback.print_exc()
+            
+            print_exc()
             # En caso de error, mantener el nuevo calendario sin cambios
             return calendario_nuevo
 
@@ -885,8 +887,8 @@ class ExtractorCalendario:
             
         except Exception as e:
             print(f"Error generando JSON: {e}")
-            import traceback
-            traceback.print_exc()
+            
+            print_exc()
             return None
 
     def ejecutar_proceso_simplificado(self):
@@ -934,6 +936,6 @@ class ExtractorCalendario:
                 
         except Exception as e:
             print(f"💥 Error en ejecución: {e}")
-            import traceback
-            traceback.print_exc()
+            
+            print_exc()
             return None
