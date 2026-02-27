@@ -14,8 +14,9 @@ class Config:
         self.log = Log()
         
         # 🔐 CREDENCIALES ECODIGITAL
-        self.user_eco = self._get_env_variable("USER_ECO")
-        self.ps_eco = self._get_env_variable("PASSWD_ECO")
+        self.users_eco = getenv("USERS_ECO", "[]")
+        self.passwds_eco = getenv("PASSWDS_ECO", "[]")
+
         self.telegram_token = self._get_env_variable("TELEGRAM_TOKEN")  # O cargar desde variables de entorno
         self.telegram_chat = self._get_env_variable("TELEGRAM_CHAT")
         

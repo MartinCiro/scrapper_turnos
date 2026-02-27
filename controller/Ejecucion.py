@@ -528,94 +528,78 @@ class Ejecuciones:
             print("\n💀 EJECUCIÓN FALLIDA: No se pudo hacer login")
             return {"exito": False, "error": "No se pudo hacer login"}
 
-    def ejecutar_flujo_completo(self):
+    def ejecutar_todos(self):
         """
-        Ejecuta un flujo completo de prueba (HTTP).
+        Ejecuta el proceso para TODOS los usuarios en la lista
         """
-        print("🔁 Iniciando flujo completo de prueba (HTTP)...")
+        usuarios = self.config.users_eco
+        passwords = self.config.passwds_eco
         
-        steps = [
-            ("1. Login y extracción vía API", self.ejecuta_login_y_extraccion)
-        ]
+        if not usuarios:
+            print("❌ No hay usuarios para ejecutar")
+            return False
         
-        resultados = {}
+        print("\n" + "="*60)
+        print(f"🚀 INICIANDO EJECUCIÓN PARA {len(usuarios)} USUARIO(S)")
+        print("="*60)
         
-        for step_name, step_function in steps:
+        resultados = []
+        
+        for idx, (user, pwd) in enumerate(zip(usuarios, passwords), 1):
             print(f"\n{'='*50}")
-            print(f"PASO: {step_name}")
+            print(f"👤 USUARIO {idx}/{len(usuarios)}: {user}")
             print(f"{'='*50}")
             
             try:
-                resultado = step_function()
-                resultados[step_name] = resultado
+                # 1. Login
+                login = Login(self.config, user, pwd)
+                if not login.login():
+                    raise Exception("Login fallido")
                 
-                if resultado and resultado.get("exito"):
-                    print(f"✅ {step_name} - EXITOSO")
-                    if resultado.get("mes_calendario"):
-                        print(f"   📅 Mes del calendario: {resultado['mes_calendario']}")
-                    if resultado.get("fecha_generacion"):
-                        print(f"   📅 JSON generado: {resultado['fecha_generacion']}")
-                    if resultado.get("json_eliminado_por_mes"):
-                        print(f"   🗑️  JSON anterior eliminado por cambio de mes")
-                    elif resultado.get("json_eliminado"):
-                        print(f"   🗑️  JSON anterior eliminado por antigüedad")
+                # 2. Extraer calendario
+                extractor = ExtractorCalendario(login.get_session(), self.config, user)
+                exito = extractor.ejecutar_proceso_simplificado()
+                
+                if exito:
+                    print(f"✅ Usuario {user}: EXITOSO")
+                    resultados.append({"usuario": user, "exito": True})
                 else:
-                    print(f"❌ {step_name} - FALLIDO")
+                    print(f"❌ Usuario {user}: FALLIDO")
+                    resultados.append({"usuario": user, "exito": False})
                     
             except Exception as e:
-                print(f"💥 {step_name} - ERROR: {str(e)}")
+                print(f"💥 Error: {e}")
                 print_exc()
-                resultados[step_name] = {"exito": False, "error": str(e)}
+                resultados.append({"usuario": user, "exito": False, "error": str(e)})
             
-            # Pausa entre pasos
-            sleep(uniform(1, 2))
+            # Pausa entre usuarios (excepto el último)
+            if idx < len(usuarios):
+                pausa = uniform(3, 6)
+                print(f"⏳ Esperando {pausa:.1f}s antes del siguiente usuario...")
+                sleep(pausa)
         
         # Resumen final
-        print(f"\n{'='*50}")
-        print("📊 RESUMEN DE EJECUCIÓN (HTTP)")
-        print(f"{'='*50}")
+        self._mostrar_resumen(resultados)
         
-        exitosos = sum(1 for resultado in resultados.values() 
-                      if isinstance(resultado, dict) and resultado.get("exito"))
-        total = len(resultados)
+        return all(r["exito"] for r in resultados)
+    
+    def _mostrar_resumen(self, resultados):
+        """Muestra resumen simple"""
+        print("\n" + "="*60)
+        print("📊 RESUMEN FINAL")
+        print("="*60)
         
-        for paso, resultado in resultados.items():
-            if isinstance(resultado, dict) and resultado.get("exito"):
-                estado = f"✅ EXITOSO (Usuario: {resultado.get('usuario', 'N/A')})"
-                if resultado.get("mes_calendario"):
-                    estado += f" - Mes: {resultado['mes_calendario']}"
-                if resultado.get("json_eliminado_por_mes"):
-                    estado += " - [NUEVO MES]"
-                elif resultado.get("json_eliminado"):
-                    estado += " - [JSON RECIÉN CREADO]"
-            else:
-                estado = "❌ FALLIDO"
-                if isinstance(resultado, dict) and resultado.get("error"):
-                    estado += f" - Error: {resultado['error']}"
-            print(f"{paso}: {estado}")
+        exitosos = sum(1 for r in resultados if r["exito"])
         
-        print(f"\n🎯 RESULTADO: {exitosos}/{total} pasos exitosos")
+        for r in resultados:
+            estado = "✅" if r["exito"] else "❌"
+            print(f"{estado} {r['usuario']}")
         
-        return exitosos == total
-
-    def prueba_rapida_api(self):
-        """
-        Prueba rápida del endpoint API (usa cookies guardadas si existen).
-        """
-        print("⚡ Prueba rápida del endpoint API...")
+        print(f"\n📈 Total: {exitosos}/{len(resultados)} exitosos")
         
-        try:
-            # Intentar login con cookies primero (más rápido)
-            self.login_instance = Login(self.config)  
-            
-            if self.login_instance.login(use_cookies=True):
-                print("✅ Sesión activa con cookies")
-                return self.extraer_y_procesar_calendario(self.config.user_eco)  
-            else:
-                print("❌ No hay sesión activa, haciendo login completo...")
-                return self.ejecuta_login_y_extraccion()
-                
-        except Exception as e:
-            print(f"💥 Error en prueba rápida: {str(e)}")
-            print_exc()
-            return False
+        # Notificación Telegram (opcional)
+        if self.notificador and (exitosos < len(resultados) or exitosos > 0):
+            mensaje = f"📊 *Resumen Ejecución*\n"
+            mensaje += f"✅ {exitosos} exitosos\n"
+            mensaje += f"❌ {len(resultados)-exitosos} fallidos"
+            self.notificador.enviar_mensaje(mensaje)
