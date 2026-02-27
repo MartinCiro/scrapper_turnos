@@ -5,21 +5,19 @@ from os import path as os_path, makedirs
 from datetime import datetime, timedelta
 from numpy import zeros, int32 as np_32, array as np_array
 
-from controller.Config import Config
+from traceback import print_exc
 
-class ExtractorCalendario(Config):
+class ExtractorCalendario:
     """
     Clase encargada de extraer datos del calendario de turnos de EcoDigital usando API HTTP.
     Versión HTTP - sin dependencia de Playwright
     """
     
-    def __init__(self, session: Session, user_email: str):
+    def __init__(self, session: Session, config):
         """Constructor que inicializa con sesión HTTP"""
-        super().__init__()
-        
         self.session = session
-        self.user_email = user_email
-        self.nombre_usuario = self.user_eco.split('@')[0] if '@' in self.user_eco else self.user_eco
+        self.nombre_usuario = None
+        self.config = config  # Guardar configuración inyectada
 
     def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None):
         """
@@ -41,14 +39,15 @@ class ExtractorCalendario(Config):
             fecha_inicio_fmt = fecha_inicio.replace("/0", "/").lstrip("0")
             fecha_fin_fmt = fecha_fin.replace("/0", "/").lstrip("0")
             
-            self.log.comentario("INFO", f"📡 Consultando API de turnos: {fecha_inicio_fmt} a {fecha_fin_fmt}")
+            # 👇 CAMBIO: self.log → self.config.log
+            self.config.log.comentario("INFO", f"📡 Consultando API de turnos: {fecha_inicio_fmt} a {fecha_fin_fmt}")
             
             # Headers para el request
             headers = {
                 'Content-Type': 'application/json;charset=UTF-8',
                 'Accept': 'application/json, text/plain, */*',
-                'Origin': f'{self.eco_base_url}',
-                'Referer': f'{self.eco_login_url}Master',
+                'Origin': f'{self.config.eco_base_url}',  
+                'Referer': f'{self.config.eco_login_url}Master',  
                 'Sec-Fetch-Dest': 'empty',
                 'Sec-Fetch-Mode': 'cors',
                 'Sec-Fetch-Site': 'same-origin'
@@ -62,26 +61,26 @@ class ExtractorCalendario(Config):
             
             # Hacer request al API
             response = self.session.post(
-                self.eco_api_turnos,
+                self.config.eco_api_turnos,  
                 json=payload,
                 headers=headers,
-                timeout=30
+                timeout=self.config.timeout  
             )
             
             if response.status_code != 200:
-                self.log.error(f"Error en API: {response.status_code}", "GET turnos")
+                self.config.log.error(f"Error en API: {response.status_code}", "GET turnos")  
                 return None
             
             # Parsear respuesta JSON
             data = response.json()
             
-            self.log.comentario("Turnos extraídos exitosamente", "Data turnos")
+            self.config.log.comentario("Turnos extraídos exitosamente", "Data turnos")  
             return data
             
         except Exception as e:
-            self.log.error(f"Error extrayendo turnos del API: {str(e)}", "Extractor turnos")
-            import traceback
-            traceback.print_exc()
+            self.config.log.error(f"Error extrayendo turnos del API: {str(e)}", "Extractor turnos")  
+            
+            print_exc()
             return None
 
     def procesar_datos_api(self, data_api):
@@ -90,9 +89,9 @@ class ExtractorCalendario(Config):
         """
         try:
             if not data_api or 'turnos' not in data_api:
-                self.log.error("Datos del API inválidos (no contiene 'turnos')", "Sin data turnos")
+                self.config.log.error("Datos del API inválidos (no contiene 'turnos')", "Sin data turnos")
                 if data_api:
-                    self.log.comentario("INFO", f"Estructura recibida: {list(data_api.keys())}")
+                    self.config.log.comentario("INFO", f"Estructura recibida: {list(data_api.keys())}")
                 return None
             
             # El API devuelve directamente el objeto JSON con 'turnos' y 'eventos'
@@ -104,7 +103,7 @@ class ExtractorCalendario(Config):
                 if 'Asesor' in primer_turno and 'NombreCompleto' in primer_turno['Asesor']:
                     nombre_usuario = primer_turno['Asesor']['NombreCompleto']
                     if nombre_usuario:
-                        self.log.comentario(f"👤 Usuario identificado: {nombre_usuario}", "Usuario identificado")
+                        self.config.log.comentario(f"👤 Usuario identificado: {nombre_usuario}", "Usuario identificado")
             
             # Procesar turnos por día
             turnos_por_dia = {}
@@ -172,7 +171,7 @@ class ExtractorCalendario(Config):
                                     'duracion_minutos': duracion_minutos
                                 }
                             except (ValueError, TypeError) as e:
-                                self.log.comentario("WARNING", f"⚠️ Error convirtiendo timestamps de break: {e}")
+                                self.config.log.comentario("WARNING", f"⚠️ Error convirtiendo timestamps de break: {e}")
                     
                     # Guardar información del día
                     turnos_por_dia[dia_num] = {
@@ -191,18 +190,18 @@ class ExtractorCalendario(Config):
                     }
                     
                 except Exception as e:
-                    self.log.comentario("WARNING", f"⚠️ Error procesando turno {fecha_str}: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    self.config.log.comentario("WARNING", f"⚠️ Error procesando turno {fecha_str}: {e}")
+                    
+                    print_exc()
                     continue
             
-            self.log.comentario(f"Procesados {len(turnos_por_dia)} días con turnos", "Data turnos")
+            self.config.log.comentario(f"Procesados {len(turnos_por_dia)} días con turnos", "Data turnos")
             return turnos_por_dia
             
         except Exception as e:
-            self.log.error(f"Error procesando datos del API: {str(e)}", "Procesador de datos extraidos")
-            import traceback
-            traceback.print_exc()
+            self.config.log.error(f"Error procesando datos del API: {str(e)}", "Procesador de datos extraidos")
+            
+            print_exc()
             return None
 
     def _calcular_duracion_horas(self, horario: str) -> float:
@@ -309,15 +308,15 @@ class ExtractorCalendario(Config):
             }
             
         except Exception as e:
-            self.log.error(f"Error generando estructura compatible: {str(e)}", "estructra incompatible")
-            import traceback
-            traceback.print_exc()
+            self.config.log.error(f"Error generando estructura compatible: {str(e)}", "estructra incompatible")
+            
+            print_exc()
             return None
 
     def extraer_todo(self):
         """Extrae todos los datos del calendario usando el API"""
         try:
-            self.log.comentario("INFO", "🔄 Iniciando extracción de turnos desde API...")
+            self.config.log.comentario("INFO", "🔄 Iniciando extracción de turnos desde API...")
             
             # 1. Extraer datos del API
             data_api = self.extraer_turnos_api()
@@ -332,13 +331,13 @@ class ExtractorCalendario(Config):
             # 3. Generar estructura compatible
             datos_compatibles = self.generar_estructura_compatible(turnos_por_dia)
 
-            self.log.comentario("SUCCESS", "Extracción completada exitosamente")
+            self.config.log.comentario("SUCCESS", "Extracción completada exitosamente")
             return datos_compatibles
             
         except Exception as e:
-            self.log.error(f"Error en extracción completa: {str(e)}", "extraccion de datos completo calendario")
-            import traceback
-            traceback.print_exc()
+            self.config.log.error(f"Error en extracción completa: {str(e)}", "extraccion de datos completo calendario")
+            
+            print_exc()
             return None
 
     def mostrar_datos_extraidos(self, datos):
@@ -391,10 +390,10 @@ class ExtractorCalendario(Config):
         try:
             if not self.nombre_usuario:
                 # Usar email como fallback
-                self.nombre_usuario = self.user_email.split('@')[0] if '@' in self.user_email else self.user_email
+                nombre_usuario = self.config.user_eco.split('@')[0] if '@' in self.config.user_eco else self.config.user_eco
             
             # Limpiar nombre para usar como directorio
-            nombre_limpio = "".join(c for c in self.nombre_usuario if c.isalnum() or c in (' ', '_')).rstrip() if self.nombre_usuario else self.user_email
+            nombre_limpio = "".join(c for c in self.nombre_usuario if c.isalnum() or c in (' ', '_')).rstrip() if self.nombre_usuario else self.config.user_eco
             nombre_directorio = nombre_limpio.replace(' ', '_').upper()
             
             # Ruta: ./data/usuarios/{NOMBRE_USUARIO}/
@@ -486,8 +485,8 @@ class ExtractorCalendario(Config):
             
         except Exception as e:
             print(f"Error en comparar_y_actualizar: {e}")
-            import traceback
-            traceback.print_exc()
+            
+            print_exc()
             return None
 
     def _guardar_calendario_limpio(self, calendario, es_primera_extraccion=True):
@@ -705,8 +704,8 @@ class ExtractorCalendario(Config):
             
         except Exception as e:
             print(f"Error grave detectando cambios: {e}")
-            import traceback
-            traceback.print_exc()
+            
+            print_exc()
             # En caso de error, mantener el nuevo calendario sin cambios
             return calendario_nuevo
 
@@ -785,8 +784,8 @@ class ExtractorCalendario(Config):
             nombre_usuario = datos_extractos.get('nombre_usuario', 'Usuario Desconocido')
             
             usuario_info = {
-                "id": nombre_usuario.upper().replace(" ", "_") if nombre_usuario else self.user_email.upper().replace("@", "_").replace(".", "_"),
-                "nombre_completo": nombre_usuario if nombre_usuario else self.user_email
+                "id": nombre_usuario.upper().replace(" ", "_") if nombre_usuario else self.config.user_eco.upper().replace("@", "_").replace(".", "_"),
+                "nombre_completo": nombre_usuario if nombre_usuario else self.config.user_eco
             }
             
             # Información del período
@@ -888,8 +887,8 @@ class ExtractorCalendario(Config):
             
         except Exception as e:
             print(f"Error generando JSON: {e}")
-            import traceback
-            traceback.print_exc()
+            
+            print_exc()
             return None
 
     def ejecutar_proceso_simplificado(self):
@@ -937,6 +936,6 @@ class ExtractorCalendario(Config):
                 
         except Exception as e:
             print(f"💥 Error en ejecución: {e}")
-            import traceback
-            traceback.print_exc()
+            
+            print_exc()
             return None
