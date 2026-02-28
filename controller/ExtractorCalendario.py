@@ -1,11 +1,9 @@
 from glob import glob
 from json import dump, load
-from requests import Session
+from traceback import print_exc
 from os import path as os_path, makedirs
 from datetime import datetime, timedelta
 from numpy import zeros, int32 as np_32, array as np_array
-
-from traceback import print_exc
 
 class ExtractorCalendario:
     """
@@ -13,11 +11,12 @@ class ExtractorCalendario:
     Versión HTTP - sin dependencia de Playwright
     """
     
-    def __init__(self, session: Session, config):
+    def __init__(self, session, config, user_email=None):
         """Constructor que inicializa con sesión HTTP"""
         self.session = session
         self.nombre_usuario = None
         self.config = config  # Guardar configuración inyectada
+        self.user_email = user_email if user_email else config.user_eco
 
     def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None):
         """
@@ -39,15 +38,14 @@ class ExtractorCalendario:
             fecha_inicio_fmt = fecha_inicio.replace("/0", "/").lstrip("0")
             fecha_fin_fmt = fecha_fin.replace("/0", "/").lstrip("0")
             
-            # 👇 CAMBIO: self.log → self.config.log
             self.config.log.comentario("INFO", f"📡 Consultando API de turnos: {fecha_inicio_fmt} a {fecha_fin_fmt}")
             
             # Headers para el request
             headers = {
                 'Content-Type': 'application/json;charset=UTF-8',
                 'Accept': 'application/json, text/plain, */*',
-                'Origin': f'{self.config.eco_base_url}',  
-                'Referer': f'{self.config.eco_login_url}Master',  
+                'Origin': self.config.eco_base_url,
+                'Referer': f'{self.config.eco_login_url}Master',
                 'Sec-Fetch-Dest': 'empty',
                 'Sec-Fetch-Mode': 'cors',
                 'Sec-Fetch-Site': 'same-origin'
@@ -59,27 +57,55 @@ class ExtractorCalendario:
                 "fechaFin": fecha_fin_fmt
             }
             
+            # Verificar que la sesión existe
+            if not self.session:
+                self.config.log.error("Sesión no inicializada", "API request")
+                return None
+            
             # Hacer request al API
             response = self.session.post(
-                self.config.eco_api_turnos,  
+                self.config.eco_api_turnos,
                 json=payload,
                 headers=headers,
-                timeout=self.config.timeout  
+                timeout=self.config.timeout
             )
             
-            if response.status_code != 200:
-                self.config.log.error(f"Error en API: {response.status_code}", "GET turnos")  
+            self.config.log.comentario("INFO", f"Status API: {response.status_code}")
+            
+            # Verificar código de respuesta
+            if response.status_code == 401:
+                self.config.log.error("No autorizado - sesión expirada", "API response")
+                return None
+            elif response.status_code == 403:
+                self.config.log.error("Acceso prohibido - verificar permisos", "API response")
+                return None
+            elif response.status_code == 404:
+                self.config.log.error("API no encontrada - verificar URL", "API response")
+                self.config.log.comentario("DEBUG", f"URL intentada: {self.config.eco_api_turnos}")
+                return None
+            elif response.status_code != 200:
+                self.config.log.error(f"Error en API: {response.status_code}", "API response")
+                return None
+            
+            # Verificar content-type
+            content_type = response.headers.get('Content-Type', '')
+            if 'application/json' not in content_type:
+                self.config.log.error(f"Content-Type incorrecto: {content_type}", "API response")
+                self.config.log.comentario("DEBUG", f"Respuesta (primeros 200 chars): {response.text[:200]}")
                 return None
             
             # Parsear respuesta JSON
-            data = response.json()
-            
-            self.config.log.comentario("Turnos extraídos exitosamente", "Data turnos")  
-            return data
+            try:
+                data = response.json()
+                self.config.log.comentario("SUCCESS", "Turnos extraídos exitosamente")
+                return data
+            except ValueError as e:
+                self.config.log.error(f"Error parseando JSON: {str(e)}", "API response")
+                self.config.log.comentario("DEBUG", f"Respuesta raw: {response.text[:200]}")
+                return None
             
         except Exception as e:
-            self.config.log.error(f"Error extrayendo turnos del API: {str(e)}", "Extractor turnos")  
-            
+            self.config.log.error(f"Error extrayendo turnos del API: {str(e)}", "Extractor turnos")
             print_exc()
             return None
 
@@ -88,7 +114,26 @@ class ExtractorCalendario:
         Procesa la respuesta del API y genera estructuras compatibles con el código anterior
         """
         try:
-            if not data_api or 'turnos' not in data_api:
+            # Validación robusta de datos
+            if data_api is None:
+                self.config.log.error("Datos del API son None", "Sin data turnos")
+                return None
+            
+            # Si es string, probablemente es un error HTML
+            if isinstance(data_api, str):
+                self.config.log.error("El API devolvió texto en lugar de JSON", "Error formato")
+                # Mostrar primeros caracteres para debugging
+                preview = data_api[:200] + "..." if len(data_api) > 200 else data_api
+                self.config.log.comentario("DEBUG", f"Respuesta: {preview}")
+                return None
+            
+            # Verificar que sea diccionario
+            if not isinstance(data_api, dict):
+                self.config.log.error(f"Tipo de dato inesperado: {type(data_api)}", "Sin data turnos")
+                return None
+            
+            # Verificar que contenga 'turnos'
+            if 'turnos' not in data_api:
                 self.config.log.error("Datos del API inválidos (no contiene 'turnos')", "Sin data turnos")
                 if data_api:
                     self.config.log.comentario("INFO", f"Estructura recibida: {list(data_api.keys())}")
@@ -103,6 +148,7 @@ class ExtractorCalendario:
                 if 'Asesor' in primer_turno and 'NombreCompleto' in primer_turno['Asesor']:
                     nombre_usuario = primer_turno['Asesor']['NombreCompleto']
                     if nombre_usuario:
+                        self.nombre_usuario = nombre_usuario
                         self.config.log.comentario(f"👤 Usuario identificado: {nombre_usuario}", "Usuario identificado")
             
             # Procesar turnos por día
@@ -130,7 +176,7 @@ class ExtractorCalendario:
                     # Determinar si es día libre (Novedad con código 'LIBRE')
                     es_dia_libre = False
                     novedad = turno.get('Novedad')
-                    if novedad and novedad.get('Codigo') == 'LIBRE':
+                    if novedad and isinstance(novedad, dict) and novedad.get('Codigo') == 'LIBRE':
                         es_dia_libre = True
                     
                     # Extraer horario del turno (usar strings directamente)
@@ -191,7 +237,6 @@ class ExtractorCalendario:
                     
                 except Exception as e:
                     self.config.log.comentario("WARNING", f"⚠️ Error procesando turno {fecha_str}: {e}")
-                    
                     print_exc()
                     continue
             
@@ -200,7 +245,6 @@ class ExtractorCalendario:
             
         except Exception as e:
             self.config.log.error(f"Error procesando datos del API: {str(e)}", "Procesador de datos extraidos")
-            
             print_exc()
             return None
 
@@ -318,25 +362,34 @@ class ExtractorCalendario:
         try:
             self.config.log.comentario("INFO", "🔄 Iniciando extracción de turnos desde API...")
             
+            # Verificar que hay sesión
+            if not self.session:
+                self.config.log.error("Sesión no disponible - hacer login primero", "extraccion")
+                return None
+            
             # 1. Extraer datos del API
             data_api = self.extraer_turnos_api()
             if not data_api:
+                self.config.log.error("No se obtuvieron datos del API", "extraccion")
                 return None
             
             # 2. Procesar datos
             turnos_por_dia = self.procesar_datos_api(data_api)
             if not turnos_por_dia:
+                self.config.log.error("No se pudieron procesar los datos del API", "extraccion")
                 return None
             
             # 3. Generar estructura compatible
             datos_compatibles = self.generar_estructura_compatible(turnos_por_dia)
+            if not datos_compatibles:
+                self.config.log.error("No se pudo generar estructura compatible", "extraccion")
+                return None
 
             self.config.log.comentario("SUCCESS", "Extracción completada exitosamente")
             return datos_compatibles
             
         except Exception as e:
             self.config.log.error(f"Error en extracción completa: {str(e)}", "extraccion de datos completo calendario")
-            
             print_exc()
             return None
 
@@ -902,7 +955,6 @@ class ExtractorCalendario:
             datos = self.extraer_todo()
             
             if not datos:
-                print("Error extrayendo datos")
                 return None
             
             # 2. Mostrar datos extraídos

@@ -58,18 +58,21 @@ class Config:
         return value
 
     def _cargar_listas_usuarios(self):
-        """Carga las listas de usuarios desde el .env"""
-        if not self.users_eco:
-            user = getenv("USER_ECO")
-            pwd = getenv("PASSWD_ECO")
-            if user and pwd:
-                self.users_eco = [user]
-                self.passwds_eco = [pwd]
+        """Carga usuarios desde formato CSV"""
+        users_str = getenv("USERS_ECO", "")
+        pass_str = getenv("PASSWDS_ECO", "")
         
-        # Establecer el primer usuario como actual por defecto
-        if self.users_eco:
-            self.user_eco = self.users_eco[0]
-            self.ps_eco = self.passwds_eco[0]
+        if users_str and pass_str:
+            # Separar por comas y limpiar espacios
+            self.users_eco = [u.strip() for u in users_str.split(',') if u.strip()]
+            self.passwds_eco = [p.strip() for p in pass_str.split(',') if p.strip()]
+            
+            print(f"📋 CSV cargado: {len(self.users_eco)} usuarios")
+            
+            # Establecer el PRIMERO como actual SOLO PARA INICIALIZAR
+            if self.users_eco:
+                self.user_eco = self.users_eco[0]
+                self.ps_eco = self.passwds_eco[0]
 
     def _get_user_cookies_path(self) -> str:
         """

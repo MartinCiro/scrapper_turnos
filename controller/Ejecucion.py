@@ -243,7 +243,7 @@ class Ejecuciones:
             
             # 1. Verificar si hay JSON que eliminar por cambio de mes (PRIORIDAD ALTA)
             # 👇 PASAR config al extractor temporal
-            extractor_temp = ExtractorCalendario(None, self.config)  
+            extractor_temp = ExtractorCalendario(None, self.config, user_email)  
             ruta_json_usuario = extractor_temp.obtener_ruta_json_usuario()
             
             if ruta_json_usuario and os_path.exists(ruta_json_usuario):
@@ -475,14 +475,12 @@ class Ejecuciones:
                     f"Extracción completada - Sin cambios en {json_data.get('periodo', {}).get('mes', '')}"
                 )
 
+    # En Ejecuciones.py - método ejecuta_login_y_extraccion
     def ejecuta_login_y_extraccion(self):
-        """
-        Ejecuta login en EcoDigital y extracción de turnos vía API HTTP.
-        ¡SIN INTERACCIÓN CON UI! (no hay clicks, no hay botones)
-        """
         print("🚀 Iniciando ejecución en EcoDigital (HTTP)...")
+        print(f"🔐 Usuario actual: {self.config.user_eco}")
+        print(f"🔐 Password: {self.config.ps_eco[:3]}...")
         
-        # Configuración de reintentos
         intentos_login = 0
         max_intentos = self.config.max_retries  
         login_exitoso = False
@@ -491,17 +489,18 @@ class Ejecuciones:
             try:
                 print(f"\n🔄 Intento {intentos_login + 1}/{max_intentos}")
                 
-                # Inicializar login HTTP (pasando config)
-                self.login_instance = Login(self.config)  
+                # PASAR EXPLÍCITAMENTE las credenciales actuales
+                self.login_instance = Login(
+                    self.config,
+                    self.config.user_eco,
+                    self.config.ps_eco
+                )  
                 
-                # Intentar login
                 resultado_login = self.login_instance.login()
                 
                 if resultado_login:
                     login_exitoso = True
                     print("✅ Login exitoso")
-                    
-                    # ✅ EXTRAER DIRECTAMENTE DEL API
                     return self.extraer_y_procesar_calendario(self.config.user_eco)  
                 else:
                     intentos_login += 1
@@ -520,13 +519,8 @@ class Ejecuciones:
                     print("⏳ Reintentando después de error...")
                     sleep(uniform(5, 8))
 
-        # Resultado final
-        if login_exitoso:
-            print("\n✅ LOGIN EXITOSO pero sin extracción")
-            return {"exito": True, "mensaje": "Login exitoso pero sin extracción"}
-        else:
-            print("\n💀 EJECUCIÓN FALLIDA: No se pudo hacer login")
-            return {"exito": False, "error": "No se pudo hacer login"}
+        print("\n💀 EJECUCIÓN FALLIDA: No se pudo hacer login")
+        return {"exito": False, "error": "No se pudo hacer login"}
 
     def ejecutar_flujo_completo(self):
         """
