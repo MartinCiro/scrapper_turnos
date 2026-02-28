@@ -32,8 +32,22 @@ def main():
             # Ejecutar el flujo para ESTE usuario
             ejecutor = Ejecuciones(config)
             resultado = ejecutor.ejecutar_flujo_completo()
-            print(f"✅ Usuario {usuario}: EXITOSO" if resultado and resultado.get("exito") else f"❌ Usuario {usuario}: FALLIDO")
-                
+            # 🔥 Si falla por sesión, intentar una vez más con login fresco
+            if not resultado.get("exito"):
+                error_msg = str(resultado.get("error", ""))
+                if "NOSESS" in error_msg or "sesión" in error_msg.lower() or "login" in error_msg.lower():
+                    print(f"🔄 Reintentando {usuario} con login fresco...")
+                    if hasattr(ejecutor, 'login_instance') and ejecutor.login_instance:
+                        ejecutor.login_instance.session.cookies.clear()
+                    resultado_reintento = ejecutor.ejecuta_login_y_extraccion()
+                    # Normalizar también el reintento
+                    if isinstance(resultado_reintento, bool):
+                        resultado = {"exito": resultado_reintento, "error": None if resultado_reintento else "Reintento fallido"}
+                    else:
+                        resultado = resultado_reintento
+            
+            print(f"✅ {usuario}: EXITOSO" if resultado and resultado.get("exito") else f"❌ {usuario}: FALLIDO")
+            
         except Exception as e:
             print(f"💥 Error procesando {usuario}: {e}")
             import traceback

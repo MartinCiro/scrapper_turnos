@@ -21,20 +21,18 @@ class ExtractorCalendario:
     def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None):
         """
         Extrae los turnos directamente del API JSON
-        Formato de fechas: "26/1/2026" (día/mes/año)
+        Retorna: dict con datos, None si error, o {"_error_session": "NOSESS"} si sesión expiró
         """
         try:
-            # Calcular fechas si no se proporcionan (mes actual + buffer)
+            # Calcular fechas si no se proporcionan
             if not fecha_inicio or not fecha_fin:
                 hoy = datetime.now()
-                # Inicio: último día del mes anterior
                 primer_dia_mes = hoy.replace(day=1)
                 fecha_inicio = (primer_dia_mes - timedelta(days=5)).strftime("%d/%m/%Y")
-                # Fin: primer día del mes siguiente + buffer
                 primer_dia_siguiente = (hoy.replace(day=28) + timedelta(days=4)).replace(day=1)
                 fecha_fin = (primer_dia_siguiente + timedelta(days=5)).strftime("%d/%m/%Y")
             
-            # Formatear fechas al formato que espera el API (sin ceros iniciales)
+            # Formatear fechas (sin ceros iniciales)
             fecha_inicio_fmt = fecha_inicio.replace("/0", "/").lstrip("0")
             fecha_fin_fmt = fecha_fin.replace("/0", "/").lstrip("0")
             
@@ -51,13 +49,8 @@ class ExtractorCalendario:
                 'Sec-Fetch-Site': 'same-origin'
             }
             
-            # Payload
-            payload = {
-                "fechaInicio": fecha_inicio_fmt,
-                "fechaFin": fecha_fin_fmt
-            }
+            payload = {"fechaInicio": fecha_inicio_fmt, "fechaFin": fecha_fin_fmt}
             
-            # Verificar que la sesión existe
             if not self.session:
                 self.config.log.error("Sesión no inicializada", "API request")
                 return None
@@ -72,16 +65,21 @@ class ExtractorCalendario:
             
             self.config.log.comentario("INFO", f"Status API: {response.status_code}")
             
-            # Verificar código de respuesta
+            # 🔥 NUEVO: Detectar NOSESS ANTES de verificar status codes
+            response_text = response.text.strip()
+            if response_text.upper() == "NOSESS":
+                self.config.log.error("Sesión expirada para API (NOSESS)", "API response")
+                return {"_error_session": "NOSESS"}
+            
+            # Verificar códigos de error HTTP
             if response.status_code == 401:
                 self.config.log.error("No autorizado - sesión expirada", "API response")
-                return None
+                return {"_error_session": "NOSESS"}
             elif response.status_code == 403:
                 self.config.log.error("Acceso prohibido - verificar permisos", "API response")
                 return None
             elif response.status_code == 404:
                 self.config.log.error("API no encontrada - verificar URL", "API response")
-                self.config.log.comentario("DEBUG", f"URL intentada: {self.config.eco_api_turnos}")
                 return None
             elif response.status_code != 200:
                 self.config.log.error(f"Error en API: {response.status_code}", "API response")
@@ -90,8 +88,12 @@ class ExtractorCalendario:
             # Verificar content-type
             content_type = response.headers.get('Content-Type', '')
             if 'application/json' not in content_type:
+                # 🔥 NUEVO: Re-verificar NOSESS si el content-type no es JSON
+                if response_text.upper() == "NOSESS":
+                    self.config.log.error("Sesión expirada para API (NOSESS)", "API response")
+                    return {"_error_session": "NOSESS"}
                 self.config.log.error(f"Content-Type incorrecto: {content_type}", "API response")
-                self.config.log.comentario("DEBUG", f"Respuesta (primeros 200 chars): {response.text[:200]}")
+                self.config.log.comentario("DEBUG", f"Respuesta (primeros 200 chars): {response_text[:200]}")
                 return None
             
             # Parsear respuesta JSON
@@ -100,10 +102,14 @@ class ExtractorCalendario:
                 self.config.log.comentario("SUCCESS", "Turnos extraídos exitosamente")
                 return data
             except ValueError as e:
+                # 🔥 NUEVO: Re-verificar NOSESS antes de reportar error de JSON
+                if response_text.upper() == "NOSESS":
+                    self.config.log.error("Sesión expirada para API (NOSESS)", "API response")
+                    return {"_error_session": "NOSESS"}
                 self.config.log.error(f"Error parseando JSON: {str(e)}", "API response")
-                self.config.log.comentario("DEBUG", f"Respuesta raw: {response.text[:200]}")
+                self.config.log.comentario("DEBUG", f"Respuesta raw: {response_text[:200]}")
                 return None
-            
+                
         except Exception as e:
             self.config.log.error(f"Error extrayendo turnos del API: {str(e)}", "Extractor turnos")
             print_exc()
@@ -111,19 +117,28 @@ class ExtractorCalendario:
 
     def procesar_datos_api(self, data_api):
         """
-        Procesa la respuesta del API y genera estructuras compatibles con el código anterior
+        Procesa la respuesta del API y genera estructuras compatibles
+        Retorna: dict con turnos, None si error, o {"_error_session": "NOSESS"} si sesión expiró
         """
         try:
+            # 🔥 NUEVO: Detectar señal de sesión expirada ANTES de cualquier validación
+            if isinstance(data_api, dict) and data_api.get("_error_session") == "NOSESS":
+                self.config.log.error("Sesión expirada para API (NOSESS) - requiere re-login", "procesar_datos")
+                return {"_error_session": "NOSESS"}
+            
             # Validación robusta de datos
             if data_api is None:
                 self.config.log.error("Datos del API son None", "Sin data turnos")
                 return None
             
-            # Si es string, probablemente es un error HTML
+            # Si es string, probablemente es un error HTML o NOSESS
             if isinstance(data_api, str):
-                self.config.log.error("El API devolvió texto en lugar de JSON", "Error formato")
-                # Mostrar primeros caracteres para debugging
                 preview = data_api[:200] + "..." if len(data_api) > 200 else data_api
+                # 🔥 Verificar si es NOSESS
+                if data_api.strip().upper() == "NOSESS":
+                    self.config.log.error("Sesión expirada para API (NOSESS)", "Error formato")
+                    return {"_error_session": "NOSESS"}
+                self.config.log.error("El API devolvió texto en lugar de JSON", "Error formato")
                 self.config.log.comentario("DEBUG", f"Respuesta: {preview}")
                 return None
             
@@ -153,73 +168,57 @@ class ExtractorCalendario:
             
             # Procesar turnos por día
             turnos_por_dia = {}
-            
             for turno in turnos_data.get('turnos', []):
-                # Extraer fecha del turno (formato: "2026-01-27 02:00")
                 fecha_hora_entrada = turno.get('FechaHoraEntradaString', '')
                 if not fecha_hora_entrada or ' ' not in fecha_hora_entrada:
                     continue
-                
                 fecha_str = fecha_hora_entrada.split(' ')[0]
                 
-                # Parsear fecha
                 try:
                     fecha = datetime.strptime(fecha_str, "%Y-%m-%d")
                     dia_num = fecha.day
                     mes_num = fecha.month
                     año_num = fecha.year
                     
-                    # Obtener día de la semana
                     dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
                     dia_semana = dias_semana[fecha.weekday()]
                     
-                    # Determinar si es día libre (Novedad con código 'LIBRE')
+                    # Determinar si es día libre
                     es_dia_libre = False
                     novedad = turno.get('Novedad')
                     if novedad and isinstance(novedad, dict) and novedad.get('Codigo') == 'LIBRE':
                         es_dia_libre = True
                     
-                    # Extraer horario del turno (usar strings directamente)
+                    # Extraer horario
                     horario_entrada = fecha_hora_entrada.split(' ')[1] if ' ' in fecha_hora_entrada else ''
                     fecha_hora_salida = turno.get('FechaHoraSalidaString', '')
                     horario_salida = fecha_hora_salida.split(' ')[1] if ' ' in fecha_hora_salida else ''
-                    
                     horario = f"{horario_entrada} - {horario_salida}" if horario_entrada and horario_salida else ''
                     
-                    # Determinar tipo de turno
                     tipo = 'Día Libre' if es_dia_libre else 'Dimensionado'
                     
-                    # EXTRAER BREAKS CORRECTAMENTE (formato /Date(xxx)/)
+                    # EXTRAER BREAKS
                     break_info = None
                     hora_descanso_entrada_str = turno.get('HoraDescanso1Entrada')
                     hora_descanso_salida_str = turno.get('HoraDescanso1Salida')
                     
                     if hora_descanso_entrada_str and hora_descanso_salida_str:
-                        # Extraer número del formato /Date(1769491200000)/
                         import re
                         match_entrada = re.search(r'/Date\((\d+)\)/', str(hora_descanso_entrada_str))
                         match_salida = re.search(r'/Date\((\d+)\)/', str(hora_descanso_salida_str))
                         
                         if match_entrada and match_salida:
                             try:
-                                # Convertir milisegundos a segundos
                                 entrada_ms = int(match_entrada.group(1))
                                 salida_ms = int(match_salida.group(1))
-                                
                                 entrada_break = datetime.fromtimestamp(entrada_ms / 1000)
                                 salida_break = datetime.fromtimestamp(salida_ms / 1000)
-                                
                                 horario_break = f"{entrada_break.strftime('%H:%M')} - {salida_break.strftime('%H:%M')}"
                                 duracion_minutos = int((salida_break - entrada_break).total_seconds() / 60)
-                                
-                                break_info = {
-                                    'horario': horario_break,
-                                    'duracion_minutos': duracion_minutos
-                                }
+                                break_info = {'horario': horario_break, 'duracion_minutos': duracion_minutos}
                             except (ValueError, TypeError) as e:
                                 self.config.log.comentario("WARNING", f"⚠️ Error convirtiendo timestamps de break: {e}")
                     
-                    # Guardar información del día
                     turnos_por_dia[dia_num] = {
                         'fecha': fecha_str,
                         'dia': dia_num,
@@ -234,7 +233,6 @@ class ExtractorCalendario:
                         'break': break_info,
                         'es_dia_libre': es_dia_libre
                     }
-                    
                 except Exception as e:
                     self.config.log.comentario("WARNING", f"⚠️ Error procesando turno {fecha_str}: {e}")
                     print_exc()
@@ -362,7 +360,6 @@ class ExtractorCalendario:
         try:
             self.config.log.comentario("INFO", "🔄 Iniciando extracción de turnos desde API...")
             
-            # Verificar que hay sesión
             if not self.session:
                 self.config.log.error("Sesión no disponible - hacer login primero", "extraccion")
                 return None
@@ -373,8 +370,17 @@ class ExtractorCalendario:
                 self.config.log.error("No se obtuvieron datos del API", "extraccion")
                 return None
             
+            # 🔥 NUEVO: Verificar si la API devolvió señal de sesión expirada
+            if isinstance(data_api, dict) and data_api.get("_error_session") == "NOSESS":
+                return {"_error_session": "NOSESS"}
+            
             # 2. Procesar datos
             turnos_por_dia = self.procesar_datos_api(data_api)
+            
+            # 🔥 NUEVO: Verificar señal de NOSESS después de procesar también
+            if isinstance(turnos_por_dia, dict) and turnos_por_dia.get("_error_session") == "NOSESS":
+                return {"_error_session": "NOSESS"}
+            
             if not turnos_por_dia:
                 self.config.log.error("No se pudieron procesar los datos del API", "extraccion")
                 return None
@@ -384,7 +390,7 @@ class ExtractorCalendario:
             if not datos_compatibles:
                 self.config.log.error("No se pudo generar estructura compatible", "extraccion")
                 return None
-
+            
             self.config.log.comentario("SUCCESS", "Extracción completada exitosamente")
             return datos_compatibles
             

@@ -271,6 +271,34 @@ class Ejecuciones:
                 self.login_instance.get_session(), 
                 self.config  
             )
+
+            datos = self.extractor_instance.extraer_todo()
+        
+            # Si falla por NOSESS y podemos reintentar login
+            if datos is None:
+                # Verificar si fue por sesión expirada (revisando último log o estado)
+                # O simplemente reintentar con login fresco
+                self.config.log.comentario("WARNING", "Reintentando con login fresco por posible sesión expirada")
+                
+                # Forzar nuevo login SIN usar cookies
+                if self.login_instance:
+                    self.login_instance.session.cookies.clear()
+                
+                nuevo_login = Login(self.config, self.config.user_eco, self.config.ps_eco)
+                if nuevo_login.login(use_cookies=False):  # ← Login fresco, sin cookies
+                    self.login_instance = nuevo_login
+                    self.extractor_instance = ExtractorCalendario(
+                        self.login_instance.get_session(), 
+                        self.config  
+                    )
+                    print("🔄 Reintentando extracción con sesión fresca...")
+                    datos = self.extractor_instance.extraer_todo()
+                else:
+                    self.config.log.error("Re-login fallido", "extraccion")
+            
+            if not datos:
+                self.config.log.error("No se pudieron obtener datos del API", "extraccion")
+                return None
             
             # 3. EJECUTAR proceso simplificado
             exito = self.extractor_instance.ejecutar_proceso_simplificado()
@@ -525,6 +553,7 @@ class Ejecuciones:
     def ejecutar_flujo_completo(self):
         """
         Ejecuta un flujo completo de prueba (HTTP).
+        Retorna: dict con estado de la ejecución
         """
         print("🔁 Iniciando flujo completo de prueba (HTTP)...")
         
@@ -533,6 +562,7 @@ class Ejecuciones:
         ]
         
         resultados = {}
+        exitosos = 0
         
         for step_name, step_function in steps:
             print(f"\n{'='*50}")
@@ -543,51 +573,47 @@ class Ejecuciones:
                 resultado = step_function()
                 resultados[step_name] = resultado
                 
-                if resultado and resultado.get("exito"):
+                # 🔥 Normalizar resultado bool a dict
+                if isinstance(resultado, bool):
+                    resultado = {"exito": resultado, "error": None if resultado else "Paso fallido"}
+                if resultado is None:
+                    resultado = {"exito": False, "error": "Sin resultado"}
+                
+                if resultado.get("exito"):
                     print(f"✅ {step_name} - EXITOSO")
+                    exitosos += 1
+                    # Mostrar detalles si existen
                     if resultado.get("mes_calendario"):
-                        print(f"   📅 Mes del calendario: {resultado['mes_calendario']}")
-                    if resultado.get("fecha_generacion"):
-                        print(f"   📅 JSON generado: {resultado['fecha_generacion']}")
-                    if resultado.get("json_eliminado_por_mes"):
-                        print(f"   🗑️  JSON anterior eliminado por cambio de mes")
-                    elif resultado.get("json_eliminado"):
-                        print(f"   🗑️  JSON anterior eliminado por antigüedad")
+                        print(f"   📅 Mes: {resultado['mes_calendario']}")
                 else:
                     print(f"❌ {step_name} - FALLIDO")
-                    
+                    if resultado.get("error"):
+                        print(f"   💥 Error: {resultado['error']}")
+                        
             except Exception as e:
                 print(f"💥 {step_name} - ERROR: {str(e)}")
                 print_exc()
                 resultados[step_name] = {"exito": False, "error": str(e)}
             
-            # Pausa entre pasos
             sleep(uniform(1, 2))
         
-        # Resumen final
+        # 🔥 RETORNAR DICT ESTRUCTURADO (no bool)
+        resultado_final = {
+            "exito": exitosos == len(steps),
+            "resumen": {
+                "exitosos": exitosos,
+                "total": len(steps),
+                "porcentaje": round((exitosos / len(steps)) * 100) if steps else 0
+            },
+            "detalles": resultados
+        }
+        
+        # Agregar datos del usuario si están disponibles
+        if resultados.get("1. Login y extracción vía API") and isinstance(resultados["1. Login y extracción vía API"], dict):
+            resultado_final.update(resultados["1. Login y extracción vía API"])
+        
         print(f"\n{'='*50}")
-        print("📊 RESUMEN DE EJECUCIÓN (HTTP)")
+        print(f"🎯 RESULTADO: {exitosos}/{len(steps)} pasos exitosos")
         print(f"{'='*50}")
         
-        exitosos = sum(1 for resultado in resultados.values() 
-                      if isinstance(resultado, dict) and resultado.get("exito"))
-        total = len(resultados)
-        
-        for paso, resultado in resultados.items():
-            if isinstance(resultado, dict) and resultado.get("exito"):
-                estado = f"✅ EXITOSO (Usuario: {resultado.get('usuario', 'N/A')})"
-                if resultado.get("mes_calendario"):
-                    estado += f" - Mes: {resultado['mes_calendario']}"
-                if resultado.get("json_eliminado_por_mes"):
-                    estado += " - [NUEVO MES]"
-                elif resultado.get("json_eliminado"):
-                    estado += " - [JSON RECIÉN CREADO]"
-            else:
-                estado = "❌ FALLIDO"
-                if isinstance(resultado, dict) and resultado.get("error"):
-                    estado += f" - Error: {resultado['error']}"
-            print(f"{paso}: {estado}")
-        
-        print(f"\n🎯 RESULTADO: {exitosos}/{total} pasos exitosos")
-        
-        return exitosos == total
+        return resultado_final  # ← Siempre retorna dict, nunca bool
