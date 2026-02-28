@@ -87,9 +87,9 @@ class ExtractorCalendario:
         """
         try:
             if not data_api or 'turnos' not in data_api:
-                self.log.error("Datos del API inválidos (no contiene 'turnos')", "Sin data turnos")
+                self.config.error("Datos del API inválidos (no contiene 'turnos')", "Sin data turnos")
                 if data_api:
-                    self.log.comentario("INFO", f"Estructura recibida: {list(data_api.keys())}")
+                    self.config.comentario("INFO", f"Estructura recibida: {list(data_api.keys())}")
                 return None
             
             # El API devuelve directamente el objeto JSON con 'turnos' y 'eventos'
@@ -101,7 +101,7 @@ class ExtractorCalendario:
                 if 'Asesor' in primer_turno and 'NombreCompleto' in primer_turno['Asesor']:
                     nombre_usuario = primer_turno['Asesor']['NombreCompleto']
                     if nombre_usuario:
-                        self.log.comentario(f"👤 Usuario identificado: {nombre_usuario}", "Usuario identificado")
+                        self.config.comentario(f"👤 Usuario identificado: {nombre_usuario}", "Usuario identificado")
             
             # Procesar turnos por día
             turnos_por_dia = {}
@@ -169,7 +169,7 @@ class ExtractorCalendario:
                                     'duracion_minutos': duracion_minutos
                                 }
                             except (ValueError, TypeError) as e:
-                                self.log.comentario("WARNING", f"⚠️ Error convirtiendo timestamps de break: {e}")
+                                self.config.comentario("WARNING", f"⚠️ Error convirtiendo timestamps de break: {e}")
                     
                     # Guardar información del día
                     turnos_por_dia[dia_num] = {
@@ -188,16 +188,16 @@ class ExtractorCalendario:
                     }
                     
                 except Exception as e:
-                    self.log.comentario("WARNING", f"⚠️ Error procesando turno {fecha_str}: {e}")
+                    self.config.comentario("WARNING", f"⚠️ Error procesando turno {fecha_str}: {e}")
                     import traceback
                     traceback.print_exc()
                     continue
             
-            self.log.comentario(f"Procesados {len(turnos_por_dia)} días con turnos", "Data turnos")
+            self.config.comentario(f"Procesados {len(turnos_por_dia)} días con turnos", "Data turnos")
             return turnos_por_dia
             
         except Exception as e:
-            self.log.error(f"Error procesando datos del API: {str(e)}", "Procesador de datos extraidos")
+            self.config.error(f"Error procesando datos del API: {str(e)}", "Procesador de datos extraidos")
             import traceback
             traceback.print_exc()
             return None
@@ -306,7 +306,7 @@ class ExtractorCalendario:
             }
             
         except Exception as e:
-            self.log.error(f"Error generando estructura compatible: {str(e)}", "estructra incompatible")
+            self.config.error(f"Error generando estructura compatible: {str(e)}", "estructra incompatible")
             import traceback
             traceback.print_exc()
             return None
@@ -314,7 +314,7 @@ class ExtractorCalendario:
     def extraer_todo(self):
         """Extrae todos los datos del calendario usando el API"""
         try:
-            self.log.comentario("INFO", "🔄 Iniciando extracción de turnos desde API...")
+            self.config.comentario("INFO", "🔄 Iniciando extracción de turnos desde API...")
             
             # 1. Extraer datos del API
             data_api = self.extraer_turnos_api()
@@ -329,11 +329,11 @@ class ExtractorCalendario:
             # 3. Generar estructura compatible
             datos_compatibles = self.generar_estructura_compatible(turnos_por_dia)
 
-            self.log.comentario("SUCCESS", "Extracción completada exitosamente")
+            self.config.comentario("SUCCESS", "Extracción completada exitosamente")
             return datos_compatibles
             
         except Exception as e:
-            self.log.error(f"Error en extracción completa: {str(e)}", "extraccion de datos completo calendario")
+            self.config.error(f"Error en extracción completa: {str(e)}", "extraccion de datos completo calendario")
             import traceback
             traceback.print_exc()
             return None
