@@ -1,7 +1,8 @@
 # Config.py
 from re import sub
 from dotenv import load_dotenv
-from os import path as pt, makedirs, getenv
+from os import path as pt, makedirs, getenv, remove
+from os import path as os_path, listdir, rmdir, remove
 from typing import List
 from controller.Log import Log
 
@@ -84,7 +85,7 @@ class Config:
                 raise ValueError("No hay usuario actual configurado")
             
             # Crear directorio base de cookies si no existe
-            if not pt.exists(self.cookies_base_path):
+            if not os_path.exists(self.cookies_base_path):
                 makedirs(self.cookies_base_path, exist_ok=True)
             
             # Extraer nombre de usuario del email
@@ -95,11 +96,11 @@ class Config:
             
             # Crear ruta específica
             cookies_file = f"{safe_username}_cookies.json"
-            return pt.join(self.cookies_base_path, cookies_file)
+            return os_path.join(self.cookies_base_path, cookies_file)
             
         except Exception as e:
             print(f"⚠️ Error generando ruta de cookies: {e}")
-            return pt.join(self.cookies_base_path, "cookies.json")
+            return os_path.join(self.cookies_base_path, "cookies.json")
 
     def get_user_data_path(self) -> str:
         """
@@ -115,17 +116,25 @@ class Config:
             safe_username = sub(r'[^\w\-_\. ]', '_', username)
             
             # Ruta: ./data/usuarios/NOMBRE_USUARIO/
-            user_data_path = pt.join(self.data_path, "usuarios", safe_username)
-            
-            # Crear directorio si no existe
-            if not pt.exists(user_data_path):
-                makedirs(user_data_path, exist_ok=True)
+            user_data_path = os_path.join(self.data_path, "usuarios", safe_username)
             
             return user_data_path
             
         except Exception as e:
             print(f"⚠️ Error generando ruta de datos: {e}")
             return self.data_path
+        
+    def clear_session(self):
+        """Limpia la sesión actual para forzar un nuevo login"""
+        cookies_path = self._get_user_cookies_path()
+        
+        # Eliminar archivo de cookies para forzar login fresco
+        if os_path.exists(cookies_path):
+            try:
+                remove(cookies_path)
+                self.log.comentario("INFO", "Archivo de cookies eliminado")
+            except Exception as e:
+                self.log.comentario("WARNING", f"No se pudo eliminar cookies: {e}")
 
     def get_user_json_path(self) -> str:
         """
@@ -133,7 +142,7 @@ class Config:
         Ejemplo: ./data/usuarios/usuario123/calendario.json
         """
         user_data_path = self.get_user_data_path()
-        return pt.join(user_data_path, "calendario.json")
+        return os_path.join(user_data_path, "calendario.json")
 
     def validate_config(self):
         """Valida que la configuración sea correcta"""
@@ -151,7 +160,7 @@ class Config:
         # Validar rutas base
         required_paths = [self.logs_path, self.cookies_base_path, self.data_path]
         for path_dir in required_paths:
-            if not pt.exists(path_dir):
+            if not os_path.exists(path_dir):
                 makedirs(path_dir, exist_ok=True)
                 print(f"📁 Directorio creado: {path_dir}")
         

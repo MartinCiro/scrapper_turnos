@@ -3,6 +3,7 @@ from controller.Config import Config
 from controller.Ejecucion import Ejecuciones
 from time import sleep
 from random import uniform
+from traceback import print_exc
 
 def main():
     # 1. Cargar configuración base
@@ -36,7 +37,6 @@ def main():
             if not resultado.get("exito"):
                 error_msg = str(resultado.get("error", ""))
                 if "NOSESS" in error_msg or "sesión" in error_msg.lower() or "login" in error_msg.lower():
-                    print(f"🔄 Reintentando {usuario} con login fresco...")
                     if hasattr(ejecutor, 'login_instance') and ejecutor.login_instance:
                         ejecutor.login_instance.session.cookies.clear()
                     resultado_reintento = ejecutor.ejecuta_login_y_extraccion()
@@ -50,8 +50,7 @@ def main():
             
         except Exception as e:
             print(f"💥 Error procesando {usuario}: {e}")
-            import traceback
-            traceback.print_exc()
+            print_exc()
         
         # Pausa entre usuarios (excepto el último)
         if i < total_usuarios - 1:

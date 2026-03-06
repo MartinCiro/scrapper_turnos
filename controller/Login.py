@@ -1,8 +1,10 @@
 # controller/Login.py
 from requests import Session, exceptions
 from json import load, dump
-from os import path as pt, makedirs
+from os import path as os_path, makedirs, remove
 from re import sub
+from time import sleep
+from random import uniform
 
 class Login:
     """
@@ -56,6 +58,7 @@ class Login:
 
     def login(self, use_cookies: bool = True) -> bool:
         """Login con bypass Cloudflare mejorado para VPS"""
+        
         self.config.log.inicio_proceso(f"LOGIN ECO - {self.user}")  
 
         try:
@@ -69,8 +72,6 @@ class Login:
 
             # 🔥 NUEVO: Si es re-login sin cookies, añadir delay para evitar rate limiting
             if not use_cookies:
-                from time import sleep
-                from random import uniform
                 sleep(uniform(1.5, 3.0))
                 
                 # Headers adicionales para parecer más "humano" a Cloudflare
@@ -79,12 +80,12 @@ class Login:
                     'Sec-Ch-Ua-Full-Version-List': '"Chromium";v="144.0.7464.0", "Google Chrome";v="144.0.7464.0", "Not(A:Brand";v="8.0.0.0"'
                 })
 
+
             # 2. GET inicial para obtener cookies Cloudflare
-            self.config.log.proceso("GET inicial para obtener cookies Cloudflare")  
-            login_url_con_espacios = f'{self.config.eco_login_url}  '  
+            self.config.log.proceso("GET inicial para obtener cookies Cloudflare")
 
             response = self.session.get(
-                login_url_con_espacios,
+                self.config.eco_login_url,
                 timeout=self.config.timeout,  
                 allow_redirects=True
             )
@@ -108,11 +109,10 @@ class Login:
                 return False
 
             # 3. POST con credenciales
-            self.config.log.proceso("Enviando credenciales")  
+            self.config.log.proceso("Enviando credenciales")
             payload = self._get_login_payload()
-
             login_response = self.session.post(
-                login_url_con_espacios,
+                self.config.eco_login_url,
                 data=payload,
                 timeout=self.config.timeout,  
                 allow_redirects=True
@@ -164,7 +164,7 @@ class Login:
             # 👇 USAR método de Config para garantizar consistencia de rutas
             cookies_path = self.config._get_user_cookies_path()
 
-            if not pt.exists(cookies_path):
+            if not os_path.exists(cookies_path):
                 self.config.log.comentario("INFO", f"No existen cookies para {self.user}")
                 return False
 
@@ -216,7 +216,7 @@ class Login:
         # 👇 ESPACIO al final en el regex para coincidir con Config.py
         safe_username = sub(r'[^\w\-_\. ]', '_', username)
         cookies_file = f"{safe_username}_cookies.json"
-        return pt.join(self.config.cookies_base_path, cookies_file)
+        return os_path.join(self.config.cookies_base_path, cookies_file)
 
     def save_cookies(self):
         """Guarda cookies específicas para este usuario"""
@@ -238,7 +238,7 @@ class Login:
             cookies_path = self.config._get_user_cookies_path()
             
             # Crear directorio si no existe
-            makedirs(pt.dirname(cookies_path), exist_ok=True)
+            makedirs(os_path.dirname(cookies_path), exist_ok=True)
 
             with open(cookies_path, 'w') as f:  
                 dump(cookies, f, indent=2)
@@ -277,6 +277,7 @@ class Login:
             
             # Si devuelve NOSESS o 401, la sesión no es válida para API
             if response.text.strip().upper() == "NOSESS" or response.status_code == 401:
+                self.config.clear_session()
                 return False
             return True
         except Exception:

@@ -269,7 +269,8 @@ class Ejecuciones:
             # 👇 PASAR config al extractor
             self.extractor_instance = ExtractorCalendario(
                 self.login_instance.get_session(), 
-                self.config  
+                self.config,
+                login_instance=self.login_instance
             )
 
             datos = self.extractor_instance.extraer_todo()
@@ -505,9 +506,11 @@ class Ejecuciones:
 
     # En Ejecuciones.py - método ejecuta_login_y_extraccion
     def ejecuta_login_y_extraccion(self):
+        """
+        Ejecuta login en EcoDigital y extracción de turnos vía API HTTP.
+        Incluye limpieza de cookies y re-intento automático ante errores de sesión.
+        """
         print("🚀 Iniciando ejecución en EcoDigital (HTTP)...")
-        print(f"🔐 Usuario actual: {self.config.user_eco}")
-        print(f"🔐 Password: {self.config.ps_eco[:3]}...")
         
         intentos_login = 0
         max_intentos = self.config.max_retries  
@@ -516,20 +519,36 @@ class Ejecuciones:
         while intentos_login < max_intentos and not login_exitoso:
             try:
                 print(f"\n🔄 Intento {intentos_login + 1}/{max_intentos}")
+                # Crear nueva instancia de Login (sesión limpia)
+                self.login_instance = Login(self.config)  
                 
-                # PASAR EXPLÍCITAMENTE las credenciales actuales
-                self.login_instance = Login(
-                    self.config,
-                    self.config.user_eco,
-                    self.config.ps_eco
-                )  
+                if intentos_login > 0:
+                    if self.login_instance:
+                        self.config.clear_session()
                 
+                
+                # Intentar login
                 resultado_login = self.login_instance.login()
+                print(resultado_login)
                 
                 if resultado_login:
                     login_exitoso = True
                     print("✅ Login exitoso")
-                    return self.extraer_y_procesar_calendario(self.config.user_eco)  
+                    
+                    # 👇 EXTRAER con manejo de errores de sesión (NOSESS)
+                    resultado_extraccion = self.extraer_y_procesar_calendario(self.config.user_eco)
+                    
+                    # Si la extracción falló por error de sesión, re-intentar login
+                    if resultado_extraccion and resultado_extraccion.get("exito") == False:
+                        error_msg = resultado_extraccion.get("error", "")
+                        if "NOSESS" in error_msg or "sesión" in error_msg.lower():
+                            print("⚠️  Extracción falló por sesión inválida - re-intentando login...")
+                            login_exitoso = False  # Forzar nuevo login en siguiente iteración
+                            self.config.clear_session()
+                            intentos_login += 1
+                            continue
+                    
+                    return resultado_extraccion  
                 else:
                     intentos_login += 1
                     print(f"❌ Intento {intentos_login} fallido")
@@ -547,8 +566,8 @@ class Ejecuciones:
                     print("⏳ Reintentando después de error...")
                     sleep(uniform(5, 8))
 
-        print("\n💀 EJECUCIÓN FALLIDA: No se pudo hacer login")
-        return {"exito": False, "error": "No se pudo hacer login"}
+        print("\n💀 EJECUCIÓN FALLIDA: No se pudo completar el proceso")
+        return {"exito": False, "error": "No se pudo hacer login o extracción"}
 
     def ejecutar_flujo_completo(self):
         """

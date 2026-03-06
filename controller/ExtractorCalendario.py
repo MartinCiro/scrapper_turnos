@@ -1,9 +1,12 @@
 from glob import glob
 from json import dump, load
 from traceback import print_exc
-from os import path as os_path, makedirs
+from os import path as os_path, makedirs, remove
 from datetime import datetime, timedelta
 from numpy import zeros, int32 as np_32, array as np_array
+from re import search
+from calendar import monthrange
+from shutil import copy2
 
 class ExtractorCalendario:
     """
@@ -11,14 +14,15 @@ class ExtractorCalendario:
     Versión HTTP - sin dependencia de Playwright
     """
     
-    def __init__(self, session, config, user_email=None):
+    def __init__(self, session, config, user_email=None, login_instance=None):
         """Constructor que inicializa con sesión HTTP"""
         self.session = session
         self.nombre_usuario = None
         self.config = config  # Guardar configuración inyectada
         self.user_email = user_email if user_email else config.user_eco
+        self._login_instance = login_instance
 
-    def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None):
+    def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None, reintentar: bool = True):
         """
         Extrae los turnos directamente del API JSON
         Retorna: dict con datos, None si error, o {"_error_session": "NOSESS"} si sesión expiró
@@ -68,8 +72,26 @@ class ExtractorCalendario:
             # 🔥 NUEVO: Detectar NOSESS ANTES de verificar status codes
             response_text = response.text.strip()
             if response_text.upper() == "NOSESS":
-                self.config.log.error("Sesión expirada para API (NOSESS)", "API response")
-                return {"_error_session": "NOSESS"}
+                self.config.log.comentario("WARNING", "⚠️ API retornó NOSESS - sesión inválida")
+            
+                # Si es el primer intento y tenemos referencia a Login
+                if reintentar and self._login_instance:
+                    self.config.log.comentario("INFO", "🔄 Intentando re-login para renovar sesión...")
+                    
+                    # 1. Limpiar sesión inválida
+                    self._login_instance.clear_session()
+                    
+                    # 2. Ejecutar nuevo login
+                    if self._login_instance.login(use_cookies=False):
+                        self.config.log.comentario("SUCCESS", "✅ Re-login exitoso, reintentando API...")
+                        # 3. Reintentar la llamada API (sin recursión infinita)
+                        return self.extraer_turnos_api(fecha_inicio, fecha_fin, reintentar=False)
+                    else:
+                        self.config.log.error("❌ Re-login fallido", "API auth")
+                        return None
+                else:
+                    self.config.log.error("❌ Sesión inválida y no hay re-login disponible", "API auth")
+                    return None
             
             # Verificar códigos de error HTTP
             if response.status_code == 401:
@@ -203,9 +225,8 @@ class ExtractorCalendario:
                     hora_descanso_salida_str = turno.get('HoraDescanso1Salida')
                     
                     if hora_descanso_entrada_str and hora_descanso_salida_str:
-                        import re
-                        match_entrada = re.search(r'/Date\((\d+)\)/', str(hora_descanso_entrada_str))
-                        match_salida = re.search(r'/Date\((\d+)\)/', str(hora_descanso_salida_str))
+                        match_entrada = search(r'/Date\((\d+)\)/', str(hora_descanso_entrada_str))
+                        match_salida = search(r'/Date\((\d+)\)/', str(hora_descanso_salida_str))
                         
                         if match_entrada and match_salida:
                             try:
@@ -270,9 +291,7 @@ class ExtractorCalendario:
         """
         Genera estructuras de datos compatibles con el código anterior (matrices 5x7)
         """
-        try:
-            from datetime import datetime
-            
+        try:            
             # Obtener mes y año actual
             hoy = datetime.now()
             mes_actual = hoy.month
@@ -298,8 +317,7 @@ class ExtractorCalendario:
             
             # Mapear días al calendario
             # Primero, obtener el primer día del mes y cuántos días tiene
-            import calendar
-            primer_dia_mes, dias_en_mes = calendar.monthrange(año_actual, mes_actual)
+            primer_dia_mes, dias_en_mes = monthrange(año_actual, mes_actual)
             
             # Ajustar: lunes = 0 en calendar, pero necesitamos lunes = 0 para nuestra matriz
             # calendar.monthrange devuelve lunes = 0, domingo = 6 (correcto)
@@ -459,14 +477,15 @@ class ExtractorCalendario:
             ruta_base = "./data/usuarios"
             ruta_usuario = os_path.join(ruta_base, nombre_directorio)
             
-            # Crear directorios si no existen
-            makedirs(ruta_usuario, exist_ok=True)
+            if "_" in nombre_directorio:
+                # Crear directorios si no existen
+                makedirs(ruta_usuario, exist_ok=True)
             
-            # Nombre del archivo único
-            nombre_archivo = "calendario.json"
-            ruta_json = os_path.join(ruta_usuario, nombre_archivo)
-            
-            return ruta_json
+                # Nombre del archivo único
+                nombre_archivo = "calendario.json"
+                ruta_json = os_path.join(ruta_usuario, nombre_archivo)
+                
+                return ruta_json
             
         except Exception as e:
             print(f"⚠️ Error obteniendo ruta JSON usuario: {e}")
@@ -492,10 +511,7 @@ class ExtractorCalendario:
         Compara datos extraídos con JSON existente y actualiza con cambios.
         VERIFICACIÓN ROBUSTA: Confirma existencia física del archivo ANTES de comparar.
         """
-        try:
-            from os import path as os_path
-            from datetime import datetime
-            
+        try:            
             # 1. Generar JSON con datos nuevos
             calendario_nuevo = self.generar_json_calendario(datos_extractos)
             if not calendario_nuevo:
@@ -585,7 +601,6 @@ class ExtractorCalendario:
             # Eliminar backup previo si existe (evitar acumulación)
             if os_path.exists(ruta_json):
                 try:
-                    from os import remove
                     remove(ruta_json)
                     print(f"🗑️  JSON anterior eliminado antes de guardar nuevo")
                 except Exception as e:
@@ -783,7 +798,7 @@ class ExtractorCalendario:
             if os_path.exists(ruta_json) and not es_primera_extraccion:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 ruta_backup = ruta_json.replace(".json", f"_backup_{timestamp}.json")
-                from shutil import copy2
+                
                 copy2(ruta_json, ruta_backup)
                 print(f"💾 Backup creado: {os_path.basename(ruta_backup)}")
             
@@ -825,8 +840,7 @@ class ExtractorCalendario:
             # Mantener solo 1 backup más recientes
             for backup in backups[1:]:
                 try:
-                    import os
-                    os.remove(backup)
+                    remove(backup)
                     print(f"🗑️  Eliminado backup antiguo: {os_path.basename(backup)}")
                 except Exception as e:
                     print(f"⚠️  Error eliminando backup {backup}: {e}")
