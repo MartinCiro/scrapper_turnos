@@ -1,7 +1,7 @@
 from requests import Session, exceptions
 from json import load, dump
 from datetime import datetime
-from re import sub
+from re import sub, search
 
 class Login:
     """
@@ -72,22 +72,38 @@ class Login:
                 self.config.log.proceso("Intentando login con cookies")  
                 if self._try_cookies_login():
                     self.config.log.comentario("INFO", "Login exitoso usando cookies")  
-                    self.config.log.fin_proceso("LOGIN ECO")  
+                    self.config.log.fin_proceso("LOGIN ECO")
                     return True
 
             # 2. GET inicial
-            self.config.log.proceso("GET inicial para obtener cookies Cloudflare")  
-
-            login_url_con_espacios = f'{self.config.eco_login_url}  '  
+            self.config.log.proceso("GET inicial para obtener cookies Cloudflare")
 
             # 2. GET inicial para obtener cookies y CSRF token
-            self.log.proceso("GET inicial para obtener cookies y token CSRF")
+            self.config.log.proceso("GET inicial para obtener cookies y token CSRF")
             
             response = self.session.get(
-                login_url_con_espacios,
-                timeout=self.config.timeout,  
+                self.config.eco_login_url,
+                timeout=self.config.timeout,
                 allow_redirects=True
             )
+
+            print(f"🔍 Status final: {response.status_code}")
+            print(f"🔍 URL final: {response.url}")
+            print(f"🔍 Historial de redirects:")
+            for r in response.history:
+                print(f"   {r.status_code} → {r.url}") 
+            print(f"🔍 HTML recibido: {len(response.text)} caracteres")
+            print(f"🔍 ¿Contiene formulario? {'<form' in response.text.lower()}")
+            print(f"🔍 ¿Contiene CSRF? {'__RequestVerificationToken' in response.text}")
+
+            # Intentar extraer token
+            csrf_token = self._extract_csrf_token(response.text)
+            print(f"🔍 CSRF token extraído: {csrf_token[:20] + '...' if csrf_token else 'NO ENCONTRADO'}")
+
+            # Verificar cookies de sesión
+            print(f"🔍 Cookies después del GET: {list(self.session.cookies.keys())}")
+            print(f"🔍 ¿Tiene ASP.NET_SessionId? {'ASP.NET_SessionId' in [c.name for c in self.session.cookies]}")
+            # === FIN DEBUG === 
 
             self.config.log.comentario("INFO", f"Status GET inicial: {response.status_code}")  
 
@@ -105,15 +121,27 @@ class Login:
             self.config.log.proceso("Enviando credenciales")  
 
             # 4. POST login con payload correcto
-            self.log.proceso("Enviando credenciales")
+            self.config.log.proceso("Enviando credenciales")
             payload = self._get_login_payload(csrf_token)
 
             login_response = self.session.post(
-                self.eco_login_url,
+                self.config.eco_login_url,
                 data=payload,
                 timeout=self.config.timeout,  
                 allow_redirects=True
             )
+
+            print(f"🔍 DEBUG POST login response:")
+            print(f"   Status: {login_response.status_code}")
+            print(f"   Set-Cookie header: {login_response.headers.get('Set-Cookie', '')[:500]}")
+            print(f"   Cookies en sesión DESPUÉS del POST: {[c.name for c in self.session.cookies]}")
+
+            # Buscar cf_clearance específicamente
+            set_cookie = login_response.headers.get('Set-Cookie', '')
+            if 'cf_clearance' in set_cookie:
+                print("   ✅ cf_clearance encontrado en Set-Cookie")
+            else:
+                print("   ❌ cf_clearance NO encontrado en Set-Cookie")
 
             if login_response.status_code == 403:
                 self.config.log.error("Cloudflare bloqueó el POST (403)", "POST login")  
@@ -126,9 +154,34 @@ class Login:
                 return False
 
             if self._is_logged_in_response(login_response):
+                # 👇 Intentar obtener cf_clearance haciendo un request preliminar a la API
+                try:
+                    api_test_url = self.config.eco_api_turnos.strip()
+                    test_response = self.session.post(
+                        api_test_url,
+                        json={"fechaInicio": "1/1/2026", "fechaFin": "31/1/2026"},
+                        headers={
+                            'Content-Type': 'application/json;charset=UTF-8',
+                            'Accept': 'application/json, text/plain, */*',
+                            'Accept-Language': 'en-US,en;q=0.7',
+                            'Sec-Gpc': '1',
+                            'Priority': 'u=1, i',
+                            'Origin': self.config.eco_base_url.strip(),
+                            'Referer': f'{self.config.eco_login_url.strip()}Master',
+                        },
+                        timeout=10
+                    )
+                    # Si el servidor responde con Set-Cookie, capturarlo
+                    set_cookie = test_response.headers.get('Set-Cookie', '')
+                    if 'cf_clearance' in set_cookie:
+                        match = search(r'cf_clearance=([^;]+)', set_cookie)
+                        if match:
+                            self.config.log.comentario("INFO", "cf_clearance capturado de respuesta API")
+                except Exception as e:
+                    self.config.log.comentario("DEBUG", f"No se pudo capturar cf_clearance: {e}")
+                
                 self.config.log.comentario("SUCCESS", "Login exitoso")  
                 self.save_cookies()
-                self.config.log.fin_proceso("LOGIN ECO")  
                 return True
 
             self.config.log.error("Login fallido (respuesta inesperada)", "POST login")  
@@ -220,7 +273,7 @@ class Login:
                 cookies.append({
                     'name': cookie.name,
                     'value': cookie.value,
-                    'domain': cookie.domain or self.eco_base_url,
+                    'domain': cookie.domain or self.config.eco_base_url,
                     'path': cookie.path or '/',
                     'expires': cookie.expires,
                     'secure': cookie.secure,

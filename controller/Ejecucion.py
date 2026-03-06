@@ -94,10 +94,6 @@ class Ejecuciones:
             mes_actual = datetime.now().month
             año_actual = datetime.now().year
             
-            # Mostrar información para debugging
-            print(f"📊 Mes del JSON: {mes_json_str} ({mes_json}/{año_json})")
-            print(f"📊 Mes actual: {datetime.now().strftime('%B %Y')} ({mes_actual}/{año_actual})")
-            
             # Verificar si es mes anterior (considerando cambio de año)
             es_mes_anterior = False
             if año_json < año_actual:
@@ -135,7 +131,6 @@ class Ejecuciones:
                     print(f"❌ No se pudo eliminar el JSON: {ruta_json}")
                     return False
             else:
-                print(f"✅ JSON corresponde al mes actual ({mes_json_str}), conservado")
                 self.json_fue_eliminado = False
                 self.json_eliminado_por_mes = False
                 return False
@@ -209,7 +204,6 @@ class Ejecuciones:
                         directorio = os_path.dirname(ruta_json)
                         if os_path.exists(directorio) and not listdir(directorio):
                             rmdir(directorio) 
-                            print(f"🗂️  Directorio vacío eliminado: {os_path.basename(directorio)}")
                     except Exception as dir_error:
                         print(f"ℹ️  No se pudo eliminar directorio: {dir_error}")
                     
@@ -219,7 +213,6 @@ class Ejecuciones:
                     print(f"❌ No se pudo eliminar el JSON: {ruta_json}")
                     return False
             else:
-                print(f"✅ JSON conservado (diferencia: {diferencia_dias} días ≤ 2)")
                 self.json_fue_eliminado = False
                 return False
                 
@@ -247,21 +240,12 @@ class Ejecuciones:
             ruta_json_usuario = extractor_temp.obtener_ruta_json_usuario()
             
             if ruta_json_usuario and os_path.exists(ruta_json_usuario):
-                print("\n🔍 VERIFICANDO CAMBIO DE MES...")
                 json_eliminado_por_mes = self._verificar_y_eliminar_json_por_mes(ruta_json_usuario)
                 
                 if not json_eliminado_por_mes:
-                    # Si no se eliminó por mes, verificar antigüedad (>2 días)
-                    print("\n🔍 VERIFICANDO ANTIGÜEDAD (>2 días)...")
-                    json_eliminado_por_antiguedad = self._verificar_y_eliminar_json_antiguo(ruta_json_usuario)
-                    
-                    if json_eliminado_por_antiguedad:
-                        print("🔄 JSON eliminado por antigüedad (>2 días). Esta será una nueva extracción.")
-                    else:
-                        print("✅ JSON conservado. Se comparará con la versión anterior.")
+                    self._verificar_y_eliminar_json_antiguo(ruta_json_usuario)
                 # Si ya se eliminó por mes, no hacer nada más
             else:
-                print("ℹ️  No existe JSON previo para este usuario")
                 self.json_fue_eliminado = False
             
             # 2. EXTRAER datos del API (ya tenemos sesión en self.login_instance)

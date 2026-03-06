@@ -1,11 +1,14 @@
 from glob import glob
 from json import dump, load
 from requests import Session
-from os import path as os_path, makedirs
+from os import path as os_path, makedirs, remove
 from datetime import datetime, timedelta
 from numpy import zeros, int32 as np_32, array as np_array
+from re import search
 
 from traceback import print_exc
+from calendar import monthrange
+from shutil import copy2
 
 class ExtractorCalendario:
     """
@@ -25,35 +28,38 @@ class ExtractorCalendario:
         Formato de fechas: "26/1/2026" (día/mes/año)
         """
         try:
-            # Calcular fechas si no se proporcionan (mes actual + buffer)
+            # Calcular fechas si no se proporcionan
             if not fecha_inicio or not fecha_fin:
                 hoy = datetime.now()
-                # Inicio: último día del mes anterior
                 primer_dia_mes = hoy.replace(day=1)
                 fecha_inicio = (primer_dia_mes - timedelta(days=5)).strftime("%d/%m/%Y")
-                # Fin: primer día del mes siguiente + buffer
                 primer_dia_siguiente = (hoy.replace(day=28) + timedelta(days=4)).replace(day=1)
                 fecha_fin = (primer_dia_siguiente + timedelta(days=5)).strftime("%d/%m/%Y")
             
-            # Formatear fechas al formato que espera el API (sin ceros iniciales)
+            # Formatear fechas: "26/1/2026" (sin ceros iniciales)
             fecha_inicio_fmt = fecha_inicio.replace("/0", "/").lstrip("0")
             fecha_fin_fmt = fecha_fin.replace("/0", "/").lstrip("0")
             
-            # 👇 CAMBIO: self.log → self.config.log
-            self.config.log.comentario("INFO", f"📡 Consultando API de turnos: {fecha_inicio_fmt} a {fecha_fin_fmt}")
+            self.config.log.comentario("INFO", f"📡 Consultando API: {fecha_inicio_fmt} a {fecha_fin_fmt}")
             
-            # Headers para el request
+            # 👇 URL limpia (CRÍTICO - eliminar espacios)
+            api_url = self.config.eco_api_turnos.strip()
+            
+            # 👇 Headers completos (como en tu curl working)
             headers = {
                 'Content-Type': 'application/json;charset=UTF-8',
                 'Accept': 'application/json, text/plain, */*',
-                'Origin': f'{self.config.eco_base_url}',  
-                'Referer': f'{self.config.eco_login_url}Master',  
+                'Accept-Language': 'en-US,en;q=0.7',  # 👈 Agregado
+                'Origin': self.config.eco_base_url.strip(),
+                'Referer': f'{self.config.eco_login_url.strip()}Master',
                 'Sec-Fetch-Dest': 'empty',
                 'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-origin'
+                'Sec-Fetch-Site': 'same-origin',
+                'Sec-Gpc': '1',  # 👈 Agregado - importante para Cloudflare
+                'Priority': 'u=1, i',  # 👈 Agregado
+                'User-Agent': self.session.headers.get('User-Agent', 'Mozilla/5.0')
             }
             
-            # Payload
             payload = {
                 "fechaInicio": fecha_inicio_fmt,
                 "fechaFin": fecha_fin_fmt
@@ -61,25 +67,39 @@ class ExtractorCalendario:
             
             # Hacer request al API
             response = self.session.post(
-                self.config.eco_api_turnos,  
+                api_url,
                 json=payload,
-                headers=headers,
-                timeout=self.config.timeout  
+                headers=headers, 
+                timeout=self.config.timeout
             )
             
             if response.status_code != 200:
-                self.config.log.error(f"Error en API: {response.status_code}", "GET turnos")  
+                self.config.log.error(f"Error HTTP {response.status_code}", "API turnos")
                 return None
             
-            # Parsear respuesta JSON
-            data = response.json()
+            # 👇 Manejar respuesta "NOSESS" (sesión inválida para API)
+            response_text = response.text.strip()
+            if response_text == '"NOSESS"' or response_text == 'NOSESS':
+                self.config.log.error("API rechazó sesión (NOSESS) - verificando cookies/headers", "API auth")
+                return None
             
-            self.config.log.comentario("Turnos extraídos exitosamente", "Data turnos")  
+            # Parsear JSON
+            try:
+                data = response.json()
+            except Exception as e:
+                self.config.log.error(f"Error parseando JSON: {e}. Response: {response.text[:200]}", "API JSON")
+                return None
+            
+            # Validar estructura esperada
+            if not isinstance(data, dict) or 'turnos' not in data:
+                self.config.log.error(f"Respuesta API inválida. Keys: {list(data.keys()) if isinstance(data, dict) else 'no-dict'}", "API estructura")
+                return None
+            
+            self.config.log.comentario(f"Turnos extraídos: {len(data.get('turnos', []))}", "API éxito")
             return data
             
         except Exception as e:
-            self.config.log.error(f"Error extrayendo turnos del API: {str(e)}", "Extractor turnos")  
-            
+            self.config.log.error(f"Error extrayendo turnos: {str(e)}", "Extractor")
             print_exc()
             return None
 
@@ -91,7 +111,11 @@ class ExtractorCalendario:
             if not data_api or 'turnos' not in data_api:
                 self.config.log.error("Datos del API inválidos (no contiene 'turnos')", "Sin data turnos")
                 if data_api:
-                    self.config.log.comentario("INFO", f"Estructura recibida: {list(data_api.keys())}")
+                    # 👇 CORRECCIÓN: Verificar tipo antes de llamar a .keys()
+                    if isinstance(data_api, dict):
+                        self.config.log.comentario("INFO", f"Estructura recibida: {list(data_api.keys())}")
+                    else:
+                        self.config.log.comentario("INFO", f"Tipo de dato recibido: {type(data_api).__name__}, Valor: {data_api}")
                 return None
             
             # El API devuelve directamente el objeto JSON con 'turnos' y 'eventos'
@@ -150,9 +174,8 @@ class ExtractorCalendario:
                     
                     if hora_descanso_entrada_str and hora_descanso_salida_str:
                         # Extraer número del formato /Date(1769491200000)/
-                        import re
-                        match_entrada = re.search(r'/Date\((\d+)\)/', str(hora_descanso_entrada_str))
-                        match_salida = re.search(r'/Date\((\d+)\)/', str(hora_descanso_salida_str))
+                        match_entrada = search(r'/Date\((\d+)\)/', str(hora_descanso_entrada_str))
+                        match_salida = search(r'/Date\((\d+)\)/', str(hora_descanso_salida_str))
                         
                         if match_entrada and match_salida:
                             try:
@@ -228,9 +251,7 @@ class ExtractorCalendario:
         """
         Genera estructuras de datos compatibles con el código anterior (matrices 5x7)
         """
-        try:
-            from datetime import datetime
-            
+        try:            
             # Obtener mes y año actual
             hoy = datetime.now()
             mes_actual = hoy.month
@@ -256,8 +277,8 @@ class ExtractorCalendario:
             
             # Mapear días al calendario
             # Primero, obtener el primer día del mes y cuántos días tiene
-            import calendar
-            primer_dia_mes, dias_en_mes = calendar.monthrange(año_actual, mes_actual)
+            
+            primer_dia_mes, dias_en_mes = monthrange(año_actual, mes_actual)
             
             # Ajustar: lunes = 0 en calendar, pero necesitamos lunes = 0 para nuestra matriz
             # calendar.monthrange devuelve lunes = 0, domingo = 6 (correcto)
@@ -320,7 +341,8 @@ class ExtractorCalendario:
             
             # 1. Extraer datos del API
             data_api = self.extraer_turnos_api()
-            if not data_api:
+            if not data_api or data_api == "NOSESS":
+                self.config.log.error(f"Data none o sin iniciar sesion: {str(data_api)}", "Metodo extraer_todo")
                 return None
             
             # 2. Procesar datos
@@ -433,10 +455,7 @@ class ExtractorCalendario:
         Compara datos extraídos con JSON existente y actualiza con cambios.
         VERIFICACIÓN ROBUSTA: Confirma existencia física del archivo ANTES de comparar.
         """
-        try:
-            from os import path as os_path
-            from datetime import datetime
-            
+        try:            
             # 1. Generar JSON con datos nuevos
             calendario_nuevo = self.generar_json_calendario(datos_extractos)
             if not calendario_nuevo:
@@ -526,7 +545,6 @@ class ExtractorCalendario:
             # Eliminar backup previo si existe (evitar acumulación)
             if os_path.exists(ruta_json):
                 try:
-                    from os import remove
                     remove(ruta_json)
                     print(f"🗑️  JSON anterior eliminado antes de guardar nuevo")
                 except Exception as e:
@@ -724,7 +742,6 @@ class ExtractorCalendario:
             if os_path.exists(ruta_json) and not es_primera_extraccion:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 ruta_backup = ruta_json.replace(".json", f"_backup_{timestamp}.json")
-                from shutil import copy2
                 copy2(ruta_json, ruta_backup)
                 print(f"💾 Backup creado: {os_path.basename(ruta_backup)}")
             
@@ -766,9 +783,7 @@ class ExtractorCalendario:
             # Mantener solo 1 backup más recientes
             for backup in backups[1:]:
                 try:
-                    import os
-                    os.remove(backup)
-                    print(f"🗑️  Eliminado backup antiguo: {os_path.basename(backup)}")
+                    remove(backup)
                 except Exception as e:
                     print(f"⚠️  Error eliminando backup {backup}: {e}")
                     
@@ -902,7 +917,6 @@ class ExtractorCalendario:
             datos = self.extraer_todo()
             
             if not datos:
-                print("Error extrayendo datos")
                 return None
             
             # 2. Mostrar datos extraídos
