@@ -1,7 +1,8 @@
 from requests import Session, exceptions
 from json import load, dump
-from datetime import datetime
 from re import sub, search
+from os import remove
+from os import path as os_path, remove
 
 class Login:
     """
@@ -218,9 +219,7 @@ class Login:
     def _try_cookies_login(self) -> bool:
         """Valida cookies guardadas contra el endpoint de API real"""
         try:
-            import os
-
-            if not os.path.exists(self.config.cookies_path):  
+            if not os_path.exists(self.config.cookies_path):  
                 self.config.log.comentario("INFO", "No existen cookies guardadas")  
                 return False
 
@@ -286,7 +285,35 @@ class Login:
             self.config.log.comentario("SUCCESS", f"Cookies guardadas en {self.config.cookies_path}")  
 
         except Exception as e:
-            self.config.log.error(str(e), "SAVE COOKIES")  
+            self.config.log.error(str(e), "SAVE COOKIES")
+
+    def clear_session(self):
+        """Limpia la sesión actual para forzar un nuevo login"""
+        self.config.log.comentario("INFO", "Limpiando sesión para re-login")
+        self.session.cookies.clear()
+        # Resetear headers a valores base
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.7',
+            'Origin': self.config.eco_base_url.strip(),
+            'Referer': f'{self.config.eco_login_url.strip()}Master',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Gpc': '1',
+            'Sec-Ch-Ua': '"Not:A-Brand";v="99", "Brave";v="145", "Chromium";v="145"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Linux"',
+            'Priority': 'u=1, i',
+        })
+        # Eliminar archivo de cookies para forzar login fresco
+        if os_path.exists(self.config.cookies_path):
+            try:
+                remove(self.config.cookies_path)
+                self.config.log.comentario("INFO", "Archivo de cookies eliminado")
+            except Exception as e:
+                self.config.log.comentario("WARNING", f"No se pudo eliminar cookies: {e}")  
 
     def get_session(self):
         """Retorna la sesión con headers listos para API"""

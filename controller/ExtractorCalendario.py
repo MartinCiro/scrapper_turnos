@@ -16,16 +16,17 @@ class ExtractorCalendario:
     Versión HTTP - sin dependencia de Playwright
     """
     
-    def __init__(self, session: Session, config):
+    def __init__(self, session: Session, config, login_instance=None):
         """Constructor que inicializa con sesión HTTP"""
         self.session = session
         self.nombre_usuario = None
-        self.config = config  # Guardar configuración inyectada
+        self.config = config
+        self._login_instance = login_instance
 
-    def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None):
+    def extraer_turnos_api(self, fecha_inicio: str = None, fecha_fin: str = None, reintentar: bool = True):
         """
         Extrae los turnos directamente del API JSON
-        Formato de fechas: "26/1/2026" (día/mes/año)
+        Maneja automáticamente sesiones inválidas (NOSESS) con re-login
         """
         try:
             # Calcular fechas si no se proporcionan
@@ -42,21 +43,21 @@ class ExtractorCalendario:
             
             self.config.log.comentario("INFO", f"📡 Consultando API: {fecha_inicio_fmt} a {fecha_fin_fmt}")
             
-            # 👇 URL limpia (CRÍTICO - eliminar espacios)
+            # URL limpia
             api_url = self.config.eco_api_turnos.strip()
             
-            # 👇 Headers completos (como en tu curl working)
+            # Headers completos
             headers = {
                 'Content-Type': 'application/json;charset=UTF-8',
                 'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'en-US,en;q=0.7',  # 👈 Agregado
+                'Accept-Language': 'en-US,en;q=0.7',
                 'Origin': self.config.eco_base_url.strip(),
                 'Referer': f'{self.config.eco_login_url.strip()}Master',
                 'Sec-Fetch-Dest': 'empty',
                 'Sec-Fetch-Mode': 'cors',
                 'Sec-Fetch-Site': 'same-origin',
-                'Sec-Gpc': '1',  # 👈 Agregado - importante para Cloudflare
-                'Priority': 'u=1, i',  # 👈 Agregado
+                'Sec-Gpc': '1',
+                'Priority': 'u=1, i',
                 'User-Agent': self.session.headers.get('User-Agent', 'Mozilla/5.0')
             }
             
@@ -69,18 +70,38 @@ class ExtractorCalendario:
             response = self.session.post(
                 api_url,
                 json=payload,
-                headers=headers, 
+                headers=headers,
                 timeout=self.config.timeout
             )
             
+            # === MANEJO DE "NOSESS" ===
+            response_text = response.text.strip()
+            
+            if response_text == '"NOSESS"' or response_text == 'NOSESS':
+                self.config.log.comentario("WARNING", "⚠️ API retornó NOSESS - sesión inválida")
+                
+                # Si es el primer intento y podemos reintentar
+                if reintentar and hasattr(self, '_login_instance'):
+                    self.config.log.comentario("INFO", "🔄 Intentando re-login para renovar sesión...")
+                    
+                    # 1. Limpiar sesión inválida
+                    self._login_instance.clear_session()
+                    
+                    # 2. Ejecutar nuevo login
+                    if self._login_instance.login(use_cookies=False):
+                        self.config.log.comentario("SUCCESS", "✅ Re-login exitoso, reintentando API...")
+                        # 3. Reintentar la llamada API (sin recursión infinita)
+                        return self.extraer_turnos_api(fecha_inicio, fecha_fin, reintentar=False)
+                    else:
+                        self.config.log.error("❌ Re-login fallido", "API auth")
+                        return None
+                else:
+                    self.config.log.error("❌ Sesión inválida y no hay re-login disponible", "API auth")
+                    return None
+            # === FIN MANEJO NOSESS ===
+            
             if response.status_code != 200:
                 self.config.log.error(f"Error HTTP {response.status_code}", "API turnos")
-                return None
-            
-            # 👇 Manejar respuesta "NOSESS" (sesión inválida para API)
-            response_text = response.text.strip()
-            if response_text == '"NOSESS"' or response_text == 'NOSESS':
-                self.config.log.error("API rechazó sesión (NOSESS) - verificando cookies/headers", "API auth")
                 return None
             
             # Parsear JSON
@@ -90,8 +111,8 @@ class ExtractorCalendario:
                 self.config.log.error(f"Error parseando JSON: {e}. Response: {response.text[:200]}", "API JSON")
                 return None
             
-            # Validar estructura esperada
-            if not isinstance(data, dict) or 'turnos' not in data:
+            # Validar estructura
+            if not isinstance(data, dict):
                 self.config.log.error(f"Respuesta API inválida. Keys: {list(data.keys()) if isinstance(data, dict) else 'no-dict'}", "API estructura")
                 return None
             

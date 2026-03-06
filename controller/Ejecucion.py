@@ -253,7 +253,8 @@ class Ejecuciones:
             # 👇 PASAR config al extractor
             self.extractor_instance = ExtractorCalendario(
                 self.login_instance.get_session(), 
-                self.config  
+                self.config,
+                login_instance=self.login_instance 
             )
             
             # 3. EJECUTAR proceso simplificado
@@ -581,25 +582,4 @@ class Ejecuciones:
         print(f"\n🎯 RESULTADO: {exitosos}/{total} pasos exitosos")
         
         return exitosos == total
-
-    def prueba_rapida_api(self):
-        """
-        Prueba rápida del endpoint API (usa cookies guardadas si existen).
-        """
-        print("⚡ Prueba rápida del endpoint API...")
-        
-        try:
-            # Intentar login con cookies primero (más rápido)
-            self.login_instance = Login(self.config)  
-            
-            if self.login_instance.login(use_cookies=True):
-                print("✅ Sesión activa con cookies")
-                return self.extraer_y_procesar_calendario(self.config.user_eco)  
-            else:
-                print("❌ No hay sesión activa, haciendo login completo...")
-                return self.ejecuta_login_y_extraccion()
-                
-        except Exception as e:
-            print(f"💥 Error en prueba rápida: {str(e)}")
-            print_exc()
-            return False
+    
