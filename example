@@ -1,4 +1,5 @@
-USER=user
-PASSWD=pass
-
+USERS_ECO=usuario A,usuario B
+PASSWDS_ECO=contra usuario A,contra usuario B
 HEADLESS=True or False
+TELEGRAM_TOKEN=Token de bot en telegram
+TELEGRAM_CHAT=id usuario

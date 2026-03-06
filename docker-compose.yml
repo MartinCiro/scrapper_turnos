@@ -6,8 +6,8 @@ services:
       dockerfile: Dockerfile
     working_dir: /app
     environment:
-      - USER_ECO=${USER_ECO}
-      - PASSWD_ECO=${PASSWD_ECO}
+      - USERS_ECO=${USERS_ECO}
+      - PASSWDS_ECO=${PASSWDS_ECO}
       - HEADLESS=${HEADLESS}
       - DISPLAY=:0
       - PYTHONUNBUFFERED=1

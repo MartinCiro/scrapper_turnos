@@ -31,12 +31,16 @@ print(f"CLAVE GENERADA: {new_key}")
 Crea un archivo `.env` basado en `example` con esta estructura:
 
 ```bash
-# Credenciales de Sofia Plus (obligatorias)
-USER=tu_usuario_sofia
-PASSWD=tu_password_sofia
+# Credenciales de Eco (obligatorias)
+USERS_ECO=usuario A,usuario B
+PASSWDS_ECO=contra usuario A,contra usuario B
 
 # Configuración del navegador (True = modo invisible, False = mostrar)
-HEADLESS=True
+HEADLESS=True or False
+
+# Configuración bot de telegram
+TELEGRAM_TOKEN=Token de bot en telegram
+TELEGRAM_CHAT=id usuario
 ```
 
 ### Actualizar dependencias (Solo desarrollo)
@@ -57,6 +61,9 @@ python main.py
 
 ```bash
 py -m PyInstaller --icon="ruta-absoluta-archivo-ico" ruta-abosulta-main-proyecto
+
+# Ejemplo:
+python -m PyInstaller --icon="vendor/favicon.ico" main.py
 ```
 
 #### 🚀 Opciones de compilación:
