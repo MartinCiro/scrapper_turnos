@@ -1,7 +1,7 @@
 from glob import glob
 from json import dump, load
 from traceback import print_exc
-from os import path as os_path, makedirs, remove
+from os import path as os_path, makedirs, remove, listdir
 from datetime import datetime, timedelta
 from numpy import zeros, int32 as np_32, array as np_array
 from re import search
@@ -480,16 +480,51 @@ class ExtractorCalendario:
             if "_" in nombre_directorio:
                 # Crear directorios si no existen
                 makedirs(ruta_usuario, exist_ok=True)
-            
-                # Nombre del archivo único
-                nombre_archivo = "calendario.json"
-                ruta_json = os_path.join(ruta_usuario, nombre_archivo)
+
+                ruta_json = os_path.join(ruta_usuario, "calendario.json")
+                self._actualizar_index_usuarios(ruta_base, nombre_directorio)
                 
                 return ruta_json
             
         except Exception as e:
             print(f"⚠️ Error obteniendo ruta JSON usuario: {e}")
             return None
+        
+    def _actualizar_index_usuarios(self, ruta_base, nombre_directorio):
+        if "_" in nombre_directorio:
+            # Ruta del archivo index.json
+            ruta_index = os_path.join(ruta_base, "index.json")
+            
+            # Verificar si existe el archivo index.json
+            if os_path.exists(ruta_index):
+                # Leer usuarios existentes
+                with open(ruta_index, 'r', encoding='utf-8') as f:
+                    try:
+                        todos_usuarios = load(f)
+                        if not isinstance(todos_usuarios, list):
+                            todos_usuarios = []
+                    except:
+                        todos_usuarios = []
+                
+                # Agregar el nuevo usuario si no existe
+                if nombre_directorio not in todos_usuarios:
+                    todos_usuarios.append(nombre_directorio)
+                    todos_usuarios.sort()  
+                    
+                    # Guardar el archivo actualizado
+                    with open(ruta_index, 'w', encoding='utf-8') as f:
+                        dump(todos_usuarios, f, indent=2, ensure_ascii=False)
+                    print(f"Usuario {nombre_directorio} agregado a index.json")
+                else:
+                    print(f"El usuario {nombre_directorio} ya existe en index.json")
+            else:
+                # Crear nuevo archivo con el usuario
+                todos_usuarios = [nombre_directorio]
+                with open(ruta_index, 'w', encoding='utf-8') as f:
+                    dump(todos_usuarios, f, indent=2, ensure_ascii=False)
+                print(f"Archivo index.json creado con el usuario {nombre_directorio}")
+        
+        return None
 
     def cargar_json_existente(self):
         """
